@@ -9,6 +9,10 @@
 #include <string.h>
 #include <sml/sml_file.h>
 
+#ifdef WITH_MODBUS
+#include "Modbus.h"
+#endif
+
 #define MQTT_RECONNECT_DELAY 5
 #define MQTT_LWT_TOPIC "LWT"
 #define MQTT_LWT_RETAIN true
@@ -25,6 +29,7 @@ struct MqttConfig
   char username[128] = "";
   char password[128] = "";
   char topic[128] = "iot/smartmeter/";
+  char jsonPayload[9] = "";
 };
 
 class MqttPublisher
@@ -50,10 +55,20 @@ public:
       client.setCredentials(config.username, config.password);
     }
     client.setCleanSession(true);
-    client.setWill(lastWillTopic.c_str(), MQTT_LWT_QOS, MQTT_LWT_RETAIN, MQTT_LWT_PAYLOAD_OFFLINE);
+    if(config.jsonPayload[0] == 's')
+    {
+      if(lastWillJsonPayload != 0){
+        delete lastWillJsonPayload;
+      }
+      lastWillJsonPayload = new_json_wrap(lastWillTopic.c_str(), MQTT_LWT_PAYLOAD_OFFLINE);
+      client.setWill(lastWillTopic.c_str(), MQTT_LWT_QOS, MQTT_LWT_RETAIN, lastWillJsonPayload);
+    }
+    else
+    {
+      client.setWill(lastWillTopic.c_str(), MQTT_LWT_QOS, MQTT_LWT_RETAIN, MQTT_LWT_PAYLOAD_OFFLINE);
+    }
     client.setKeepAlive(MQTT_RECONNECT_DELAY * 3);
     this->registerHandlers();
-  
   }
 
   void debug(const char *message)
@@ -125,6 +140,52 @@ public:
     }
   }
 
+#ifdef WITH_MODBUS
+  void publish(uint8_t index, ModbusSlaveConfig *config)
+  {
+    char buffer[50];
+    String entryTopic = baseTopic + "modbus/" + config->slave_id + "/";
+    
+    publish(entryTopic + "name", config->name);
+
+    sprintf(buffer, "%d", config->cnterrors);
+    publish(entryTopic + "errors", buffer);
+
+    sprintf(buffer, "%d", config->cntsuccess);
+    publish(entryTopic + "success", buffer);
+
+    switch (config->lasterror)
+    {
+      case SDM_ERR_NO_ERROR:
+        strcpy(buffer, "none");
+        break;
+      case SDM_ERR_CRC_ERROR:
+        strcpy(buffer, "crc");
+        break;
+      case SDM_ERR_WRONG_BYTES:
+        strcpy(buffer, "wrong bytes");
+        break;
+      case SDM_ERR_NOT_ENOUGHT_BYTES:
+        strcpy(buffer, "not enough bytes");
+        break;
+      case SDM_ERR_TIMEOUT:
+        strcpy(buffer, "timeout");
+        break;
+      default:
+        strcpy(buffer, "unknown");
+    };
+    publish(entryTopic + "last_error", buffer);
+
+    for (uint8_t i = 0; i < NBREG; i++)
+    {
+      if (isnan(sdmarr[i].regvalarr))
+        continue;
+      sprintf(buffer, "%.*f", sdmarr[i].prec, sdmarr[i].regvalarr);
+      publish(entryTopic + (char*)(sdmarr[i].name), buffer);
+    }
+  }
+#endif
+
   void connect()
   {
     if (this->connected)
@@ -145,7 +206,11 @@ public:
     }
     DEBUG(F("MQTT: Disconnecting from broker..."));
     client.disconnect();
-    this->reconnectTimer.detach();
+  }
+
+  bool isConnected()
+  { 
+    return connected; 
   }
 
 private:
@@ -155,6 +220,7 @@ private:
   Ticker reconnectTimer;
   String baseTopic;
   String lastWillTopic;
+  const char* lastWillJsonPayload = 0;
 
   void publish(const String &topic, const String &payload, uint8_t qos=0, bool retain=false)
   {
@@ -175,14 +241,48 @@ private:
     if (this->connected)
     {
       DEBUG(F("MQTT: Publishing to %s:"), topic);
-      DEBUG(F("%s\n"), payload);
-      client.publish(topic, qos, retain, payload, strlen(payload));
+      if(config.jsonPayload[0] == 's')
+      {
+        const char* buf = new_json_wrap(topic, payload);
+        DEBUG(F("%s\n"), buf);
+        client.publish(topic, qos, retain, buf, strlen(buf));
+        delete buf;
+      }
+      else
+      {        
+        DEBUG(F("%s"), payload);
+        client.publish(topic, qos, retain, payload, strlen(payload));
+      }
     }
+  }
+
+  const char* new_json_wrap(const char* topic, const char* payload)
+  {
+    const char* subtopic = topic + baseTopic.length();
+    size_t bufsize = strlen(payload) + strlen(subtopic) + 8;
+    char* buf = new char[bufsize];
+    bool payloadIsNumber = true;
+    for (const char* i = payload; *i != '\0'; i++)
+    {
+        if (!isdigit(*i))
+        {
+          payloadIsNumber = false;
+          break;
+        }
+    }
+    if(payloadIsNumber)
+    {
+      sniprintf(buf, bufsize, "{\"%s\":%s}", subtopic, payload);
+    }
+    else
+    {
+      sniprintf(buf, bufsize, "{\"%s\":\"%s\"}", subtopic, payload);
+    }    
+    return buf;
   }
 
   void registerHandlers()
   {
-
     client.onConnect([this](bool sessionPresent) {
       this->connected = true;
       this->reconnectTimer.detach();
@@ -197,7 +297,7 @@ private:
       DEBUG(F("MQTT: Disconnected. Reason: %d."), reason);
       reconnectTimer.attach(MQTT_RECONNECT_DELAY, [this]() {
         if (WiFi.isConnected()) {
-          this->connect();          
+          this->connect();
         }
       });
     });

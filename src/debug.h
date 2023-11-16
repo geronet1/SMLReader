@@ -6,11 +6,13 @@
 #include <sml/sml_value.h>
 #include "unit.h"
 
+/*
 #ifdef DEBUG
 #define SERIAL_DEBUG true
 #else
 #define SERIAL_DEBUG false
 #endif
+*/
 
 void DEBUG_DUMP_BUFFER(byte *buf, int size)
 {
