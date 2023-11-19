@@ -27,7 +27,7 @@ struct ModbusWebConfig
     char direction_pin[2] = { 1+'A','\0' };
     char swapuart[9] = "selected";
     char msTurnaround[6] = "300";
-    char msTimeout[6] = "20";
+    char msTimeout[6] = "5";
 };
 #endif
 
@@ -46,7 +46,7 @@ struct ModbusSensorWebConfig
 {
     char name[32] = "modbus0";
     char slave_id[4] = "0";
-    char type[2] = { SDM630+'A','\0' };
+    char type[2] = { SDM630_V+'A','\0' };
     char status_led_pin[2] = { D6+'A','\0' };
     char status_led_inverted[9] = "selected";
     char interval[5] = "0";
@@ -102,10 +102,10 @@ const char baudOptions[][BAUD_LABEL_LENGTH] = { "2400","4800","9600","19200","38
 const char modeOptions[] = { SERIAL_8N1, SERIAL_8E1, SERIAL_8O1, SERIAL_8N2 };
 const char modeNames[][MODE_LABEL_LENGTH] = { "8N1", "8E1", "8O1", "8N2"};
 
-#define TYPE_LABEL_LENGTH 10
-const uint8_t NUMBER_OF_TYPES=2;
-const char typeOptions[] = { SDM630 + 'A', '\0', SDM_EXAMPLE + 'A', '\0' };
-const char typeNames[][TYPE_LABEL_LENGTH] = { "SDM630", "example"};
+#define TYPE_LABEL_LENGTH 16
+const uint8_t NUMBER_OF_TYPES=3;
+const char typeOptions[] = { SDM630_V + 'A', '\0', SDM630_E + 'A', '\0', SDM_EXAMPLE + 'A', '\0' };
+const char typeNames[][TYPE_LABEL_LENGTH] = { "SDM630_V", "SDM630_E", "example"};
 
 #endif
 

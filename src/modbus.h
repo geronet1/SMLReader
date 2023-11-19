@@ -13,7 +13,8 @@ using namespace std;
 
 enum modbus_types
 {
-    SDM630,
+    SDM630_V,
+    SDM630_E,
     SDM_EXAMPLE,
 };
 
@@ -27,8 +28,9 @@ typedef volatile struct
     uint8_t prec;
 } sdm_struct;
 
-#define NBREG 19 // number of sdm registers to read
+#define NBREG 22 // number of sdm registers to read
 volatile sdm_struct sdmarr[NBREG] = {
+// float value, register number, mqtt name, precision
     {NAN, SDM_PHASE_1_VOLTAGE, "voltage_L1", 1}, // V
     {NAN, SDM_PHASE_2_VOLTAGE, "voltage_L2", 1}, // V
     {NAN, SDM_PHASE_3_VOLTAGE, "voltage_L3", 1}, // V
@@ -46,14 +48,15 @@ volatile sdm_struct sdmarr[NBREG] = {
     {NAN, SDM_TOTAL_SYSTEM_POWER_FACTOR, "power_factor", 3},     // None
     {NAN, SDM_TOTAL_SYSTEM_PHASE_ANGLE, "phase_angle", 0},       // Degr.
     {NAN, SDM_FREQUENCY, "frequency", 2},                        // Hz
-    {NAN, SDM_IMPORT_ACTIVE_ENERGY, "energy_import", 3},         // kWh
-    {NAN, SDM_EXPORT_ACTIVE_ENERGY, "energy_export", 3},         // kWh
 
     {NAN, SDM_NEUTRAL_CURRENT, "current_N", 3},
 
-    //    {NAN, SDM_LINE_1_TO_LINE_2_VOLTS, "voltage_L1_L2", 1}, // V
-    //    {NAN, SDM_LINE_2_TO_LINE_3_VOLTS, "voltage_L2_L3", 1}, // V
-    //    {NAN, SDM_LINE_3_TO_LINE_1_VOLTS, "voltage_L3_L1", 1},
+    {NAN, SDM_LINE_1_TO_LINE_2_VOLTS, "voltage_L1_L2", 1}, // V
+    {NAN, SDM_LINE_2_TO_LINE_3_VOLTS, "voltage_L2_L3", 1}, // V
+    {NAN, SDM_LINE_3_TO_LINE_1_VOLTS, "voltage_L3_L1", 1}, // V
+
+    {NAN, SDM_IMPORT_ACTIVE_ENERGY, "energy_import", 3},         // kWh
+    {NAN, SDM_EXPORT_ACTIVE_ENERGY, "energy_export", 3},         // kWh
 };
 
 void clear_sdmarr()
@@ -176,29 +179,37 @@ public:
                 uint8_t error = SDM_ERR_NO_ERROR;
                 clear_sdmarr();
 
-                if (slave_config[i].type == SDM630)
+                if (slave_config[i].type == SDM630_V)
                 {
-                    // 1. Registerblock von 0x00 - 0x10
+                    // 1. Registerblock von
                     error = sdm->readValues(SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER, slave_config[i].slave_id, insert_result);
                     if (error == SDM_ERR_NO_ERROR)
                     {
-                        // 2. Registerblock von
-                        error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_EXPORT_ACTIVE_ENERGY, slave_config[i].slave_id, insert_result);
+                        // 2. Registerblock
+                        error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_FREQUENCY, slave_config[i].slave_id, insert_result);
                         if (error == SDM_ERR_NO_ERROR)
                         {
-                            // 30224
-                            float res = 0;
-                            res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave_config[i].slave_id);
-                            insert_result(SDM_NEUTRAL_CURRENT, res);
+                            // 3. Registerblock
+                            error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave_config[i].slave_id, insert_result);
+                            if (error == SDM_ERR_NO_ERROR)
+                            {
+                                // 30224
+                                float res = 0;
+                                res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave_config[i].slave_id);
+                                insert_result(SDM_NEUTRAL_CURRENT, res);
+                            }
                         }
                     }
-
+                }
+                else if (slave_config[i].type == SDM630_E)
+                {
+                    error = sdm->readValues(SDM_IMPORT_ACTIVE_ENERGY, SDM_EXPORT_ACTIVE_ENERGY, slave_config[i].slave_id, insert_result);
                 }
                 else if (slave_config[i].type == SDM_EXAMPLE)
                 {
                     float res = 0;
-                    res = sdm->readVal(SDM_IMPORT_ACTIVE_ENERGY, slave_config[i].slave_id);
-                    insert_result(SDM_IMPORT_ACTIVE_ENERGY, res);
+                    // 1. Registerblock von 0x00 - 0x10
+                    error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave_config[i].slave_id, insert_result);
                 }
 
                 if (error != SDM_ERR_NO_ERROR)
