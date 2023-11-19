@@ -14,7 +14,7 @@ using namespace std;
 enum modbus_types
 {
     SDM630,
-    unknown
+    SDM_EXAMPLE,
 };
 
 const uint8_t NAME_LENGTH = 20;
@@ -83,7 +83,7 @@ public:
     int numSlaves = 0;
     int baud = 38400UL;
     int mode = SERIAL_8N1;
-    int dere_pin = NOT_A_PIN;
+    int direction_pin = NOT_A_PIN;
     bool swapuart = false;
     int msTurnaround = WAITING_TURNAROUND_DELAY;
     int msTimeout = RESPONSE_TIMEOUT;
@@ -94,8 +94,11 @@ class ModbusSlaveConfig
 public:
     char *name;
     uint8_t slave_id;
-    char *type;
+    uint8_t type;
     uint16_t interval;
+    int status_led_pin;
+    bool status_led_inverted;
+    unique_ptr<JLed> status_led;
     unsigned long lastReadTime;
 
     uint16_t cnterrors;
@@ -122,9 +125,9 @@ public:
         this->callback = callback;
 
 #ifdef USE_HARDWARESERIAL
-        sdm = new SDM(Serial, config->baud, config->dere_pin, config->mode, config->swapuart);
+        sdm = new SDM(Serial, config->baud, config->direction_pin, config->mode, config->swapuart);
 #else
-        sdm = new SDM(swSerSDM, config->baud, config->dere_pin, config->mode, SDM_RX_PIN, SDM_TX_PIN); // esp32 default pins for Serial0 => RX pin 3, TX pin 1
+        sdm = new SDM(swSerSDM, config->baud, config->direction_pin, config->mode, SDM_RX_PIN, SDM_TX_PIN); // esp32 default pins for Serial0 => RX pin 3, TX pin 1
 #endif
         sdm->begin();
 
@@ -134,6 +137,13 @@ public:
         for (uint8_t i = 0; i < config->numSlaves; i++)
         {
             slave_config[i].lastReadTime = millis();
+            if (slave_config[i].status_led_pin != NOT_A_PIN)
+            {
+                slave_config[i].status_led = unique_ptr<JLed>(new JLed(slave_config[i].status_led_pin));
+                if (slave_config[i].status_led_inverted)
+                    slave_config[i].status_led->LowActive();
+            }
+
         }
         DEBUG("Initialized Modbus with %d baud and mode %d, swapped = %s", config->baud, config->mode, config->swapuart ? "true" : "false");
     }
@@ -154,32 +164,52 @@ public:
     {
         for (uint8_t i = 0; i < config->numSlaves; i++)
         {
+            if (slave_config[i].status_led_pin != NOT_A_PIN)
+                slave_config[i].status_led->Update();
+
             if (slave_config[i].interval <= 0)
                 continue;
 
             if (millis() - slave_config[i].lastReadTime >= slave_config[i].interval * 1000)
             {
                 slave_config[i].lastReadTime = millis();
-                uint8_t error = 0;
+                uint8_t error = SDM_ERR_NO_ERROR;
                 clear_sdmarr();
 
-                // 1. Registerblock von 0x00 - 0x10
-                error = sdm->readValues(SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER, slave_config[i].slave_id, insert_result);
-                if (error == SDM_ERR_NO_ERROR)
+                if (slave_config[i].type == SDM630)
                 {
-                    // 2. Registerblock von
-                    error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_EXPORT_ACTIVE_ENERGY, slave_config[i].slave_id, insert_result);
+                    // 1. Registerblock von 0x00 - 0x10
+                    error = sdm->readValues(SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER, slave_config[i].slave_id, insert_result);
                     if (error == SDM_ERR_NO_ERROR)
                     {
-                        // 30224
-                        float res = 0;
-                        res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave_config[i].slave_id);
-                        insert_result(SDM_NEUTRAL_CURRENT, res);
+                        // 2. Registerblock von
+                        error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_EXPORT_ACTIVE_ENERGY, slave_config[i].slave_id, insert_result);
+                        if (error == SDM_ERR_NO_ERROR)
+                        {
+                            // 30224
+                            float res = 0;
+                            res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave_config[i].slave_id);
+                            insert_result(SDM_NEUTRAL_CURRENT, res);
+                        }
                     }
+
+                }
+                else if (slave_config[i].type == SDM_EXAMPLE)
+                {
+                    float res = 0;
+                    res = sdm->readVal(SDM_IMPORT_ACTIVE_ENERGY, slave_config[i].slave_id);
+                    insert_result(SDM_IMPORT_ACTIVE_ENERGY, res);
                 }
 
                 if (error != SDM_ERR_NO_ERROR)
+                {
                     DEBUG("Modbus readValues error:%d\n", error);
+                }
+                else
+                {
+                    if (slave_config[i].status_led_pin != NOT_A_PIN)
+                        slave_config[i].status_led->Blink(50, 50).Repeat(3);
+                }
 
                 slave_config[i].cnterrors = sdm->getErrCount();
                 slave_config[i].cntsuccess = sdm->getSuccCount();
@@ -197,6 +227,7 @@ public:
                 {
                     this->callback(i);
                 }
+
             }
             yield();
         }

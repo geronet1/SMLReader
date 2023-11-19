@@ -40,9 +40,8 @@ public:
     uint8_t pin;
     char* name;
     bool numeric_only;
-    bool status_led_enabled;
     bool status_led_inverted;
-    uint8_t status_led_pin;
+    int status_led_pin;
     uint16_t interval;
 };
 
@@ -61,7 +60,7 @@ public:
         this->serial->enableRx(true);
         DEBUG("Initialized sensor %s.", this->config->name);
 
-        if (this->config->status_led_enabled)
+        if (this->config->status_led_pin != NOT_A_PIN)
         {
             this->status_led = unique_ptr<JLed>(new JLed(this->config->status_led_pin));
             if (this->config->status_led_inverted)
@@ -82,7 +81,7 @@ public:
     {
         this->run_current_state();
         yield();
-        if (this->config->status_led_enabled)
+        if (this->config->status_led_pin != NOT_A_PIN)
         {
             this->status_led->Update();
             yield();
@@ -217,7 +216,7 @@ private:
             {
                 // Start sequence has been found
                 DEBUG("Start sequence found.");
-                if (this->config->status_led_enabled)
+                if (this->config->status_led_pin != NOT_A_PIN)
                 {
                     this->status_led->Blink(50, 50).Repeat(3);
                 }
