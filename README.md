@@ -1,6 +1,7 @@
 # SMLReader
 
 An ESP8266 based smart meter (SML) and Modbus RTU to MQTT gateway,
+An ESP8266 based smart meter (SML) and Modbus RTU to MQTT gateway,
 
 ## About
 
@@ -39,6 +40,36 @@ smartmeter/mains/sensor/1/obis/1-0:2.8.1/255/value 13.2
 smartmeter/mains/sensor/1/obis/1-0:1.8.2/255/value 3546245.9
 smartmeter/mains/sensor/1/obis/1-0:2.8.2/255/value 0.0
 smartmeter/mains/sensor/1/obis/1-0:16.7.0/255/value 451.2
+```
+
+Modbus output:
+
+```bash
+[stefan@kali ~]$ mosquitto_sub -h localhost -u smlreader -P smlreader -v -t smlreader/#
+smlreader/LWT Online
+smlreader/modbus/1/name Haus
+smlreader/modbus/1/errors 856
+smlreader/modbus/1/success 56127
+smlreader/modbus/1/last_error none
+smlreader/modbus/1/voltage_L1 229.0
+smlreader/modbus/1/voltage_L2 0.0
+smlreader/modbus/1/voltage_L3 0.0
+smlreader/modbus/1/current_L1 0.000
+smlreader/modbus/1/current_L2 0.000
+smlreader/modbus/1/current_L3 0.000
+smlreader/modbus/1/power_L1 0
+smlreader/modbus/1/power_L2 0
+smlreader/modbus/1/power_L3 0
+smlreader/modbus/1/current_sum 0.000
+smlreader/modbus/1/power_total 0
+smlreader/modbus/1/power_apparent 0
+smlreader/modbus/1/power_reactive 0
+smlreader/modbus/1/power_factor 1.000
+smlreader/modbus/1/phase_angle 0
+smlreader/modbus/1/frequency 49.98
+smlreader/modbus/1/energy_import 1.002
+smlreader/modbus/1/energy_export 0.069
+smlreader/modbus/1/current_N 0.000
 ```
 
 Modbus output:
@@ -422,6 +453,7 @@ docker run -it --device /dev/ttyUSB0 -v $(pwd):/src --rm mruettgers/esptool ash 
 * [Pangolin MQTT Client](https://github.com/philbowles/PangolinMQTT)
 * [libSML](https://github.com/volkszaehler/libsml)
 * [JLed](https://github.com/jandelgado/jled)
+* [SDM](https://github.com/reaper7/SDM_Energy_Meter) with addition (https://github.com/reaper7/SDM_Energy_Meter/pull/82/commits/0adbc10c5939745172ff7d0656251d8e110a9d1a) to read multiple registers at once
 * [SDM](https://github.com/reaper7/SDM_Energy_Meter) with addition (https://github.com/reaper7/SDM_Energy_Meter/pull/82/commits/0adbc10c5939745172ff7d0656251d8e110a9d1a) to read multiple registers at once
 
 ### Links
