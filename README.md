@@ -1,6 +1,6 @@
 # SMLReader
 
-An ESP8266 based smart meter (SML) to MQTT gateway 
+An ESP8266 based smart meter (SML) and Modbus RTU to MQTT gateway,
 
 ## About
 
@@ -10,11 +10,21 @@ The software was primarily developed and tested for the EMH ED300L electricity m
 
 SMLReader publishes the metrics read from the meter's optical unit to an MQTT broker configured via the provided web interface.
 
+The modbus interface has to be connected with a MAX485 (with direction-control) or a MAX13485 (with auto-direction), but you can use any other RS-485 interface ic which is compatible to the 3.3 volt the ESP needs.
+Note: Most interface transceivers use 5V, so be careful and don't connect the output (e.g. the data out pin "RO") directly to the ESP Module, in the schematic i use a voltage divider.
+
+The modbus part was tested with two [Eastron SDM630](https://www.eastroneurope.com/products/view/sdm630modbus), and because it's a RS485 bus you can connect any number of energy meters.
+It uses the lib [SDM_Energy_Meter](https://github.com/reaper7/SDM_Energy_Meter) where many other energy meter models are listed with register descriptions.
+To change the requested registers you have to edit the code, see Configuration later.
+
 If you like this project, you might consider to [support me](#donate).
 
 ### Screenshots
 ![WiFi and MQTT setup](doc/screenshots/screenshot_setup.png)
 ![Grafana](doc/screenshots/screenshot_grafana.png)
+![WiFi, MQTT and Modbus setup](doc/screenshots/screenshot_configuration-1.png)
+![Sensors and modbus setup](doc/screenshots/screenshot_configuration-2.png)
+
 ```bash
 MB-Monty ➜  ~  mosquitto_sub -h 10.4.32.103 -v -t smartmeter/mains/#
 smartmeter/mains/info Hello from 00C7551E, running SMLReader version 2.1.5.
@@ -25,6 +35,36 @@ smartmeter/mains/sensor/1/obis/1-0:2.8.1/255/value 13.2
 smartmeter/mains/sensor/1/obis/1-0:1.8.2/255/value 3546245.9
 smartmeter/mains/sensor/1/obis/1-0:2.8.2/255/value 0.0
 smartmeter/mains/sensor/1/obis/1-0:16.7.0/255/value 451.2
+```
+
+Modbus output:
+
+```bash
+[stefan@kali ~]$ mosquitto_sub -h localhost -u smlreader -P smlreader -v -t smlreader/#
+smlreader/LWT Online
+smlreader/modbus/1/name Haus
+smlreader/modbus/1/errors 856
+smlreader/modbus/1/success 56127
+smlreader/modbus/1/last_error none
+smlreader/modbus/1/voltage_L1 229.0
+smlreader/modbus/1/voltage_L2 0.0
+smlreader/modbus/1/voltage_L3 0.0
+smlreader/modbus/1/current_L1 0.000
+smlreader/modbus/1/current_L2 0.000
+smlreader/modbus/1/current_L3 0.000
+smlreader/modbus/1/power_L1 0
+smlreader/modbus/1/power_L2 0
+smlreader/modbus/1/power_L3 0
+smlreader/modbus/1/current_sum 0.000
+smlreader/modbus/1/power_total 0
+smlreader/modbus/1/power_apparent 0
+smlreader/modbus/1/power_reactive 0
+smlreader/modbus/1/power_factor 1.000
+smlreader/modbus/1/phase_angle 0
+smlreader/modbus/1/frequency 49.98
+smlreader/modbus/1/energy_import 1.002
+smlreader/modbus/1/energy_export 0.069
+smlreader/modbus/1/current_N 0.000
 ```
 
 ### Hardware
@@ -42,8 +82,12 @@ The phototransistor has been fixed with hot glue within the housing.
 
 ![Reading Head](doc/assets/SMLReader_Img_ReadingHead.jpg "Reading Head") ![Reading Head](doc/assets/SMLReader_Img_ReadingHead_Close.jpg "Reading Head") ![D1](doc/assets/SMLReader_Img_D1.jpg "WeMos D1 mini")
 
+![Reading Head](doc/assets/Optokopf.jpg "Reading Head on EMH") ![Reading Head](doc/assets/Optokopf_zerlegt.jpg "Reading Head disassembled") ![Reading Head](doc/assets/Optokopf_zusammengebaut.jpg "Reading Head in housing")
+
 #### Schematic diagram
 ![Schematic diagram](doc/assets/SMLReader_Schema.png)
+
+![Schematic diagram](doc/assets/schema_modbus.png)
 
 ## Getting started
 
@@ -109,39 +153,6 @@ Hard resetting via RTS pin...
 You should be able to use your preferred IDE to build and flash SMLReader if you take care of the dependencies and the build flags configured in the `platform.io` file.
 I strongly recommend using PlatformIO as it takes care of that itself.
 
-#### Configuration
-
-The configuration of the reading heads is done by editing `src/config.h` and adjusting  `SENSOR_CONFIGS` (see below).
-
-```c++
-static const SensorConfig SENSOR_CONFIGS[] = {
-    {.pin = D2, // GPIO pin of the phototransistor
-     .name = "1", // Sensor name used in MQTT topic
-     .numeric_only = false, // If "true", only numeric values are being published via MQTT
-     .status_led_enabled = true, // Flash status LED (3 times) when an SML start sequence has been found
-     .status_led_inverted = true, // Some LEDs (like the ESP8266 builtin LED) require an inverted output signal
-     .status_led_pin = LED_BUILTIN, // GPIO pin used for sensor status LED
-     .interval = 0 // If greater than 0, messages are published every [interval] seconds
-    },
-    {.pin = D5,
-     .name = "2",
-     .numeric_only = false,
-     .status_led_enabled = true,
-     .status_led_inverted = true,
-     .status_led_pin = LED_BUILTIN,
-     .interval = 0
-    },
-    {.pin = D6,
-     .name = "3",
-     .numeric_only = false,
-     .status_led_enabled = true,
-     .status_led_inverted = true,
-     .status_led_pin = LED_BUILTIN,
-     .interval = 15
-    }
-};
-```
-
 
 #### Building
 
@@ -173,8 +184,92 @@ To login provide the user `admin` and the configured AP password.
 
 *Attention: You have to change the AP Password (empty by default), otherwise SMLReader won't work.*
 
+---
+
+### Configuration
+
+Configuration for the SML sensors is done at runtime trough the web interface, as well for the modbus meters.
+
+Modbus:
+* Number of sensors:
+    How many meters are connected to the bus
+* Baud rate:
+    From 2400-38400 baud, you have to set the same value in the energy meter setup
+* Mode:
+    The number of bytes (8), none (N), even (E) or odd (O) parity and the number of stop bits (1 or 2)
+* Direction pin:
+    The output pin for the MAX485 ic (RO and DE, see circuit example) whit it knows when to send or "--" for no pin with auto-direction interfaces.
+* Swap UART:
+  Because normally the hardware UART (Serial) TXD0 and RXD0 pins are connected to the USB interface, you have to "swap" them to D8 (TX) and D7 (RX) pins. Unfortunately then you can't get a debug output to the connected Computer over USB, but there's an option in the code to detour the debug output (if compiled) to Serial1 (D4, GPIO2). That's only one TX line.
+* Turnaround delay (ms):
+  Timeout to wait for the answer of the meter
+* Response timeout (ms):
+  Time to wait after reading the answer to send the next request, for the SDM630 one ms is enough
+
+Modbus sensors:
+* Name:
+  The name which goes to the mqtt topic "name"
+* Slave ID:
+  Modbus slave identification number, must be set in the meter and every device id must be unique
+* Type:
+  The modbus meter type, see below
+* Led Pin:
+  You can use the onboard led or connect one external, or "--" for none.
+* Led inverted:
+  Some LEDs (like the ESP8266 builtin LED) require an inverted output signal
+* Request interval (s):
+  Time to wait between requests
+
+
+
+Like stated above, for other modbus energy meters other than the SDM630 you have to change the registers and/or add another type in webconf.h (line 106) and modbus.h (line 197).
+
+```
+#define NBREG 19 // number of sdm registers to read
+volatile sdm_struct sdmarr[NBREG] = {
+    {NAN, SDM_PHASE_1_VOLTAGE, "voltage_L1", 1}, // V
+    {NAN, SDM_PHASE_2_VOLTAGE, "voltage_L2", 1}, // V
+    {NAN, SDM_PHASE_3_VOLTAGE, "voltage_L3", 1}, // V
+    {NAN, SDM_PHASE_1_CURRENT, "current_L1", 3}, // A
+    {NAN, SDM_PHASE_2_CURRENT, "current_L2", 3}, // A
+    {NAN, SDM_PHASE_3_CURRENT, "current_L3", 3}, // A
+    {NAN, SDM_PHASE_1_POWER, "power_L1", 0},     // W
+    {NAN, SDM_PHASE_2_POWER, "power_L2", 0},     // W
+    {NAN, SDM_PHASE_3_POWER, "power_L3", 0},     // W
+
+    {NAN, SDM_SUM_LINE_CURRENT, "current_sum", 3},               // A
+    {NAN, SDM_TOTAL_SYSTEM_POWER, "power_total", 0},             // W
+    {NAN, SDM_TOTAL_SYSTEM_APPARENT_POWER, "power_apparent", 0}, // VA
+    {NAN, SDM_TOTAL_SYSTEM_REACTIVE_POWER, "power_reactive", 0}, // VAr
+    {NAN, SDM_TOTAL_SYSTEM_POWER_FACTOR, "power_factor", 3},     // None
+    {NAN, SDM_TOTAL_SYSTEM_PHASE_ANGLE, "phase_angle", 0},       // Degr.
+    {NAN, SDM_FREQUENCY, "frequency", 2},                        // Hz
+    {NAN, SDM_IMPORT_ACTIVE_ENERGY, "energy_import", 3},         // kWh
+    {NAN, SDM_EXPORT_ACTIVE_ENERGY, "energy_export", 3},         // kWh
+
+    {NAN, SDM_NEUTRAL_CURRENT, "current_N", 3},
+
+    //    {NAN, SDM_LINE_1_TO_LINE_2_VOLTS, "voltage_L1_L2", 1}, // V
+    //    {NAN, SDM_LINE_2_TO_LINE_3_VOLTS, "voltage_L2_L3", 1}, // V
+    //    {NAN, SDM_LINE_3_TO_LINE_1_VOLTS, "voltage_L3_L1", 1},
+};
+
+```
+Here i use three register blocks to read out the most useful values:
+  SDM_PHASE_1_VOLTAGE to SDM_PHASE_3_POWER          (0x0000 to 0x0010)
+  SDM_SUM_LINE_CURRENT to SDM_EXPORT_ACTIVE_ENERGY  (0x002E to 0x004A)
+and a single register:
+  SDM_NEUTRAL_CURRENT (0x00E0)
+
+The first block as well the second one with 18 registers in one request (9 float values / 32 bytes) is requested in one call instead of a single call of every value to save time, this way the overall request time is under 120 ms at 38400 baud and the query interval can be reduced down to 1 second to get live values.
+Only the last value (two registers) is requested with an extra call. See the oscilloscope screenshot:
+
+![Oscilloscope image](doc/screenshots/screenshot_oszilloskop.png)
+
+
 If everything is configured properly and running with a sensor in place, SMLReader will publish the metrics and values received from the meter to the configured MQTT broker:
 
+SML output:
 ```
 MB-Monty ➜  ~  mosquitto_sub -h 10.4.32.103 -v -t smartmeter/mains/#
 smartmeter/mains/info Hello from 00C7551E, running SMLReader version 2.1.5.
@@ -202,6 +297,46 @@ smartmeter/mains/sensor/3/obis/1-0:1.8.2/255/value 3546245.9
 smartmeter/mains/sensor/3/obis/1-0:2.8.2/255/value 0.0
 smartmeter/mains/sensor/3/obis/1-0:16.7.0/255/value 451.2
 ```
+
+Modbus output:
+```
+smlreader/LWT Online
+smlreader/modbus/1/name Haus
+smlreader/modbus/1/errors 856
+smlreader/modbus/1/success 56127
+smlreader/modbus/1/last_error none
+smlreader/modbus/1/voltage_L1 229.0
+smlreader/modbus/1/voltage_L2 0.0
+smlreader/modbus/1/voltage_L3 0.0
+smlreader/modbus/1/current_L1 0.000
+smlreader/modbus/1/current_L2 0.000
+smlreader/modbus/1/current_L3 0.000
+smlreader/modbus/1/power_L1 0
+smlreader/modbus/1/power_L2 0
+smlreader/modbus/1/power_L3 0
+smlreader/modbus/1/current_sum 0.000
+smlreader/modbus/1/power_total 0
+smlreader/modbus/1/power_apparent 0
+smlreader/modbus/1/power_reactive 0
+smlreader/modbus/1/power_factor 1.000
+smlreader/modbus/1/phase_angle 0
+smlreader/modbus/1/frequency 49.98
+smlreader/modbus/1/energy_import 1.002
+smlreader/modbus/1/energy_export 0.069
+smlreader/modbus/1/current_N 0.000
+```
+
+Explanation:
+
+* modbus/1
+  configured modbus slave ID 
+* /errors
+  error counter
+* success
+  number of successfully requests
+* last_error
+  the last error message if any
+
 
 ---
 
@@ -265,6 +400,7 @@ docker run -it --device /dev/ttyUSB0 -v $(pwd):/src --rm mruettgers/esptool ash 
 * [Pangolin MQTT Client](https://github.com/philbowles/PangolinMQTT)
 * [libSML](https://github.com/volkszaehler/libsml)
 * [JLed](https://github.com/jandelgado/jled)
+* [SDM](https://github.com/reaper7/SDM_Energy_Meter) with addition (https://github.com/reaper7/SDM_Energy_Meter/pull/82/commits/0adbc10c5939745172ff7d0656251d8e110a9d1a) to read multiple registers at once
 
 ### Links
 
@@ -282,7 +418,7 @@ docker run -it --device /dev/ttyUSB0 -v $(pwd):/src --rm mruettgers/esptool ash 
 
 * [ ] Use LITTLEFS for config storage
 * [ ] New configuration GUI based on Preact
-* [ ] Configuration of sensors via web interface
+* [X] Configuration of sensors via web interface
 * [ ] Add list of devices that are known to work
 * [ ] Support for ASCII based SML messages (also known as "SML in Textform")
 * [ ] Deep sleep for battery powered devices

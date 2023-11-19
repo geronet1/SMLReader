@@ -27,7 +27,7 @@ struct ModbusWebConfig
     char direction_pin[2] = { 1+'A','\0' };
     char swapuart[9] = "selected";
     char msTurnaround[6] = "300";
-    char msTimeout[6] = "20";
+    char msTimeout[6] = "5";
 };
 #endif
 
