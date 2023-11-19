@@ -1,17 +1,16 @@
 # SMLReader
 
 An ESP8266 based smart meter (SML) and Modbus RTU to MQTT gateway,
-An ESP8266 based smart meter (SML) and Modbus RTU to MQTT gateway,
 
 ## About
 
 The aim of this project is to read the meter readings of modern energy meters and make them available via MQTT.
 
-The software was primarily developed and tested for the EMH ED300L electricity meter, but should also work with other energy meters that have an optical interface and communicate via the SML protocol.
+The software was primarily developed and tested for the EMH ED300L electricity meter, but should also work with other energy meters that have an optical interface and communicate via the SML protocol or use Modbus RTU.
 
 SMLReader publishes the metrics read from the meter's optical unit or the 3-wire connected Modbus to an MQTT broker configured via the provided web interface.
 
-The modbus interface is normally a MAX485 (with direction-control) or a MAX13485 (with auto-direction), but you can use any other RS-485 interface chip which is compatible to the 3.3.3 volt the ESP needs.
+The modbus interface is normally a MAX485 (with direction-control) or a MAX13485 (with auto-direction), but you can use any other RS-485 interface chip which is compatible to the 3.3 volt the ESP needs.
 
 > [!WARNING]
 > Most interface transceivers use 5V, so be careful and don't connect the output (e.g. the data out pin "RO") directly to the ESP Module, in the schematic a voltage divider is used.
@@ -72,35 +71,6 @@ smlreader/modbus/1/energy_export 0.069
 smlreader/modbus/1/current_N 0.000
 ```
 
-Modbus output:
-
-```bash
-[stefan@kali ~]$ mosquitto_sub -h localhost -u smlreader -P smlreader -v -t smlreader/#
-smlreader/LWT Online
-smlreader/modbus/1/name Haus
-smlreader/modbus/1/errors 856
-smlreader/modbus/1/success 56127
-smlreader/modbus/1/last_error none
-smlreader/modbus/1/voltage_L1 229.0
-smlreader/modbus/1/voltage_L2 0.0
-smlreader/modbus/1/voltage_L3 0.0
-smlreader/modbus/1/current_L1 0.000
-smlreader/modbus/1/current_L2 0.000
-smlreader/modbus/1/current_L3 0.000
-smlreader/modbus/1/power_L1 0
-smlreader/modbus/1/power_L2 0
-smlreader/modbus/1/power_L3 0
-smlreader/modbus/1/current_sum 0.000
-smlreader/modbus/1/power_total 0
-smlreader/modbus/1/power_apparent 0
-smlreader/modbus/1/power_reactive 0
-smlreader/modbus/1/power_factor 1.000
-smlreader/modbus/1/phase_angle 0
-smlreader/modbus/1/frequency 49.98
-smlreader/modbus/1/energy_import 1.002
-smlreader/modbus/1/energy_export 0.069
-smlreader/modbus/1/current_N 0.000
-```
 
 ### Hardware
 
@@ -241,19 +211,19 @@ Configuration for the SML sensors and the Modbus is done at runtime trough the w
 * *Number of sensors:*
   > How many meters are connected to the bus
 * *Baud rate:*
-  > From 2400-38400 baud, you have to set the same value in the energy meter setup
+  > From 2400 to 38400 baud, you have to configure the same speed in the energy meter setup
 * *Mode:*
   > The number of bytes (8), none (N), even (E) or odd (O) parity and the number of stop bits (1 or 2)
 * *Direction pin:*
-  > The output pin for the MAX485 ic (RO and DE, see circuit example) whit it knows when to send or "--" for no pin with auto-direction interfaces.
+  > The output pin for the MAX485 transceiver (RO and DE, see circuit example) so that it can send on the bus. Use "--" for no pin with auto-direction interfaces.
 * *Swap UART:*
-  > Because normally the hardware UART (Serial) TXD0 and RXD0 pins are connected to the USB interface, you have to "swap" them to D8 (TX) and D7 (RX) pins. Unfortunately then you can't get a debug output to the connected Computer over USB, but there's an option in the code to detour the debug output (if compiled) to Serial1 (D4, GPIO2). That's only one TX line.
+  > Because normally the hardware UART (named "Serial") TXD0 and RXD0 pins are connected to the USB interface, you have to "swap" them to D8 (TX) and D7 (RX) pins. Unfortunately then you can't get a debug output to the connected Computer over USB, but there's an option in the code to detour the debug output (if compiled) to "Serial1" (D4, GPIO2). That's only one TX line.
 * *Turnaround delay (ms):*
   > Timeout to wait for the answer of the meter
 * *Response timeout (ms):*
   > Time to wait after reading the answer to send the next request, for the SDM630 one ms is enough
 
-#### Modbus sensors:
+#### Modbus sensors
 * *Name:*
   > The name which goes to the mqtt topic "name"
 * *Slave ID:*
@@ -268,8 +238,7 @@ Configuration for the SML sensors and the Modbus is done at runtime trough the w
   > Time to wait between requests
 
 
-
-Like stated above, for modbus energy meters other than the SDM630 you have to change the registers or add another type in webconf.h (line 106) and modbus.h (line 197).
+Like stated above, for modbus energy meters other than the SDM630 you have to change the registers or add another type in webconf.h (line 106) and modbus.h (line 208).
 
 ```
 #define NBREG 22 // number of sdm registers to read
@@ -304,16 +273,22 @@ volatile sdm_struct sdmarr[NBREG] = {
 };
 
 ```
+
 Here i use four register blocks to read out the most useful values:
+```
   SDM_PHASE_1_VOLTAGE to SDM_PHASE_3_POWER                  (0x0000 to 0x0010)
   SDM_SUM_LINE_CURRENT to SDM_FREQUENCY                     (0x0030 to 0x0046)
   SDM_LINE_1_TO_LINE_2_VOLTS to SDM_LINE_3_TO_LINE_1_VOLTS  (0x00C8 to 0x00CC)
   SDM_IMPORT_ACTIVE_ENERGY to SDM_EXPORT_ACTIVE_ENERGY      (0x0048 to 0x004A)
+```
 and a single register:
+```
   SDM_NEUTRAL_CURRENT (0x00E0)
+```
 
-The first block with 18 registers (9 float values / 32 bytes) is requested in one call instead of a single for every value to save time, this way the overall request time is under 120 ms at 38400 baud and the query interval can be reduced down to 1 second to get live values.
-Only the "SDM_NEUTRAL_CURRENT" (two registers) is requested with a single call. See the oscilloscope screenshot:
+
+The first block with 18 registers (9 float values / 32 bytes) is requested in one call instead of a single one for every value to save time, this way the overall request time for all blocks is under 120 ms at 38400 baud and the query interval can be reduced down to 1 second to get live values.
+Only the value "SDM_NEUTRAL_CURRENT" (two registers) is requested on its own. See the oscilloscope screenshot:
 
 ![Oscilloscope image](doc/screenshots/screenshot_oszilloskop.png)
 
