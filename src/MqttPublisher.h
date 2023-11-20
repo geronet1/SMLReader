@@ -141,20 +141,26 @@ public:
   }
 
 #ifdef WITH_MODBUS
-  void publish(uint8_t index, ModbusSlaveConfig *config)
+  void publish(uint8_t index, ModbusSlaveConfig *slave)
   {
     char buffer[50];
-    String entryTopic = baseTopic + "modbus/" + config->slave_id + "/";
+    String entryTopic = baseTopic + "modbus/" + slave->id + "/";
     
-    publish(entryTopic + "name", config->name);
+    publish(entryTopic + "name", slave->name, 0, true);
 
-    sprintf(buffer, "%d", config->cnterrors);
+    if (slave->serial != 0)
+    {
+      sprintf(buffer, "%u", slave->serial);
+      publish(entryTopic + "serial", buffer, 0, true);
+    }
+
+    sprintf(buffer, "%d", slave->cnterrors);
     publish(entryTopic + "errors", buffer);
 
-    sprintf(buffer, "%d", config->cntsuccess);
+    sprintf(buffer, "%d", slave->cntsuccess);
     publish(entryTopic + "success", buffer);
 
-    switch (config->lasterror)
+    switch (slave->lasterror)
     {
       case SDM_ERR_NO_ERROR:
         strcpy(buffer, "none");
@@ -172,7 +178,7 @@ public:
         strcpy(buffer, "timeout");
         break;
       default:
-        strcpy(buffer, "unknown");
+        sprintf(buffer, "unknown: %d", slave->lasterror);
     };
     publish(entryTopic + "last_error", buffer);
 

@@ -357,13 +357,17 @@ smlreader/modbus/1/current_N 0.000
 #### Explanation:
 
 * *modbus/1*
-  > configured modbus slave ID 
+  > Configured modbus slave ID 
+* */name*
+  > Configured modbus slave name
+* */serial*
+  > Serial number if available
 * */errors*
-  > error counter
+  > Error counter
 * */success*
-  > number of successfully requests
+  > Number of successfully requests
 * */last_error*
-  > the last error message if any
+  > The last error message if any
 
 
 ---

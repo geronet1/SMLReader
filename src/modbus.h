@@ -83,9 +83,9 @@ void insert_result(uint16_t reg, float result)
 class ModbusConfig
 {
 public:
-    int numSlaves = 0;
+    uint8_t numSlaves = 0;
     int baud = 38400UL;
-    int mode = SERIAL_8N1;
+    uint8_t mode = SERIAL_8N1;
     int direction_pin = NOT_A_PIN;
     bool swapuart = false;
     int msTurnaround = WAITING_TURNAROUND_DELAY;
@@ -96,7 +96,8 @@ class ModbusSlaveConfig
 {
 public:
     char *name;
-    uint8_t slave_id;
+    uint8_t id;
+    uint32_t serial;
     uint8_t type;
     uint16_t interval;
     int status_led_pin;
@@ -139,12 +140,13 @@ public:
 
         for (uint8_t i = 0; i < config->numSlaves; i++)
         {
-            slave_config[i].lastReadTime = millis();
-            if (slave_config[i].status_led_pin != NOT_A_PIN)
+            ModbusSlaveConfig *slave = &(slave_config[i]);
+            slave->lastReadTime = millis();
+            if (slave->status_led_pin != NOT_A_PIN)
             {
-                slave_config[i].status_led = unique_ptr<JLed>(new JLed(slave_config[i].status_led_pin));
-                if (slave_config[i].status_led_inverted)
-                    slave_config[i].status_led->LowActive();
+                slave->status_led = unique_ptr<JLed>(new JLed(slave->status_led_pin));
+                if (slave->status_led_inverted)
+                    slave->status_led->LowActive();
             }
 
         }
@@ -155,7 +157,7 @@ public:
     {
         for (uint8_t i = 0; i < NBREG; i++)
         {
-            sdmarr[i].regvalarr = sdm->readVal(sdmarr[i].regarr, slave_config[index].slave_id);
+            sdmarr[i].regvalarr = sdm->readVal(sdmarr[i].regarr, slave_config[index].id);
             yield();
         }
         slave_config[index].cnterrors = sdm->getErrCount();
@@ -167,67 +169,74 @@ public:
     {
         for (uint8_t i = 0; i < config->numSlaves; i++)
         {
-            if (slave_config[i].status_led_pin != NOT_A_PIN)
-                slave_config[i].status_led->Update();
+            ModbusSlaveConfig *slave = &(slave_config[i]);
 
-            if (slave_config[i].interval <= 0)
+            if (slave->status_led_pin != NOT_A_PIN)
+                slave->status_led->Update();
+
+            if (slave->interval <= 0)
                 continue;
 
-            if (millis() - slave_config[i].lastReadTime >= slave_config[i].interval * 1000)
+            if (slave->serial == 0)
             {
-                slave_config[i].lastReadTime = millis();
+                slave->serial = sdm->getSerialNumber(slave->id);
+            }
+
+            if (millis() - slave->lastReadTime >= slave->interval * 1000)
+            {
+                slave->lastReadTime = millis();
                 uint8_t error = SDM_ERR_NO_ERROR;
                 clear_sdmarr();
 
-                if (slave_config[i].type == SDM630_V)
+                if (slave->type == SDM630_V)
                 {
                     // 1. Registerblock von
-                    error = sdm->readValues(SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER, slave_config[i].slave_id, insert_result);
+                    error = sdm->readValues(SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER, slave->id, insert_result);
                     if (error == SDM_ERR_NO_ERROR)
                     {
                         // 2. Registerblock
-                        error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_FREQUENCY, slave_config[i].slave_id, insert_result);
+                        error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_FREQUENCY, slave->id, insert_result);
                         if (error == SDM_ERR_NO_ERROR)
                         {
                             // 3. Registerblock
-                            error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave_config[i].slave_id, insert_result);
+                            error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave->id, insert_result);
                             if (error == SDM_ERR_NO_ERROR)
                             {
                                 // 30224
                                 float res = 0;
-                                res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave_config[i].slave_id);
+                                res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave->id);
                                 insert_result(SDM_NEUTRAL_CURRENT, res);
                             }
                         }
                     }
                 }
-                else if (slave_config[i].type == SDM630_E)
+                else if (slave->type == SDM630_E)
                 {
-                    error = sdm->readValues(SDM_IMPORT_ACTIVE_ENERGY, SDM_EXPORT_ACTIVE_ENERGY, slave_config[i].slave_id, insert_result);
+                    error = sdm->readValues(SDM_IMPORT_ACTIVE_ENERGY, SDM_EXPORT_ACTIVE_ENERGY, slave->id, insert_result);
                 }
-                else if (slave_config[i].type == SDM_EXAMPLE)
+                else if (slave->type == SDM_EXAMPLE)
                 {
-                    float res = 0;
-                    // 1. Registerblock von 0x00 - 0x10
-                    error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave_config[i].slave_id, insert_result);
+                    error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave->id, insert_result);
                 }
 
                 if (error != SDM_ERR_NO_ERROR)
                 {
                     DEBUG("Modbus readValues error:%d\n", error);
+                    if (slave->status_led_pin != NOT_A_PIN)
+                        slave->status_led->Blink(200, 200).Repeat(2);
                 }
                 else
                 {
-                    if (slave_config[i].status_led_pin != NOT_A_PIN)
-                        slave_config[i].status_led->Blink(50, 50).Repeat(3);
+                    if (slave->status_led_pin != NOT_A_PIN)
+                        slave->status_led->Blink(60, 60).Repeat(5);
                 }
 
-                slave_config[i].cnterrors = sdm->getErrCount();
-                slave_config[i].cntsuccess = sdm->getSuccCount();
-                slave_config[i].lasterror = sdm->getErrCode(true);
+                slave->cnterrors = sdm->getErrCount();
+                slave->cntsuccess = sdm->getSuccCount();
+                slave->lasterror = sdm->getErrCode(true);
                 
                 /*
-                    DEBUG("Modbus slave [%s] ID: %d:", slave_config[i].name, slave_config[i].slave_id);
+                    DEBUG("Modbus slave [%s] ID: %d:", slave->name, slave->slave_id);
                     for (uint8_t j = 0; j < NBREG; j++)
                     {
                         DEBUG("%s: %f", sdmarr[j].name, sdmarr[j].regvalarr);
