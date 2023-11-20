@@ -238,7 +238,7 @@ Configuration for the SML sensors and the Modbus is done at runtime trough the w
   > Time to wait between requests
 
 
-Like stated above, for modbus energy meters other than the SDM630 you have to change the registers or add another type in webconf.h (line 106) and modbus.h (line 208).
+Like stated above, for modbus energy meters other than the SDM630 you have to change the registers or add another type in webconf.h (line 107) and modbus.h (line 18 and 208).
 
 ```
 #define NBREG 22 // number of sdm registers to read
