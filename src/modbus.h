@@ -108,6 +108,11 @@ public:
     uint16_t cnterrors;
     uint16_t cntsuccess;
     uint16_t lasterror;
+    uint16_t crc_errors;
+    uint16_t wb_errors;
+    uint16_t neb_errors;
+    uint16_t tmt_errors;
+
 };
 
 class Modbus
@@ -228,13 +233,35 @@ public:
                 else
                 {
                     if (slave->status_led_pin != NOT_A_PIN)
-                        slave->status_led->Blink(60, 60).Repeat(5);
+                        slave->status_led->Blink(40, 40).Repeat(3);
                 }
 
                 slave->cnterrors = sdm->getErrCount();
                 slave->cntsuccess = sdm->getSuccCount();
-                slave->lasterror = sdm->getErrCode(true);
                 
+                if (error == SDM_ERR_NO_ERROR)
+                    error = sdm->getErrCode(true);
+
+                switch(error)
+                {
+                    case SDM_ERR_CRC_ERROR:
+                        slave->crc_errors++;
+                        break;
+                    case SDM_ERR_WRONG_BYTES:
+                        slave->wb_errors++;
+                        break;
+                    case SDM_ERR_NOT_ENOUGHT_BYTES:
+                        slave->neb_errors++;
+                        break;
+                    case SDM_ERR_TIMEOUT:
+                        slave->tmt_errors++;
+                        break;
+
+                }
+
+                if (error != SDM_ERR_NO_ERROR)
+                    slave->lasterror = error;
+
                 /*
                     DEBUG("Modbus slave [%s] ID: %d:", slave->name, slave->slave_id);
                     for (uint8_t j = 0; j < NBREG; j++)

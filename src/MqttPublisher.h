@@ -143,7 +143,7 @@ public:
 #ifdef WITH_MODBUS
   void publish(uint8_t index, ModbusSlaveConfig *slave)
   {
-    char buffer[50];
+    char buffer[80];
     String entryTopic = baseTopic + "modbus/" + slave->id + "/";
     
     publish(entryTopic + "name", slave->name, 0, true);
@@ -154,11 +154,9 @@ public:
       publish(entryTopic + "serial", buffer, 0, true);
     }
 
-    sprintf(buffer, "%d", slave->cnterrors);
-    publish(entryTopic + "errors", buffer);
-
-    sprintf(buffer, "%d", slave->cntsuccess);
-    publish(entryTopic + "success", buffer);
+    snprintf(buffer, 80, "{\"success\":%d,\"fail\":%d,\"crc\":%d,\"wb\":%d,\"neb\":%d,\"tmt\":%d}",
+        slave->cntsuccess, slave->cnterrors, slave->crc_errors, slave->wb_errors, slave->neb_errors, slave->tmt_errors);
+    publish(entryTopic + "error", buffer);
 
     switch (slave->lasterror)
     {
