@@ -271,7 +271,6 @@ public:
 #endif
                      uint16_t &deepSleepInterval)
     {
-        iotWebConf->setStatusPin(IOTWEBCONF_STATUS_LED);
         boolean validConfig = iotWebConf->init();
         if (!validConfig)
         {
@@ -364,6 +363,22 @@ public:
 #endif
             deepSleepInterval = atoi(this->general.deepSleepInterval);
         }
+
+        // set status led for iotwebconf if not otherwise used
+        for (uint8_t i = 0; i < numOfSensors; i++)
+        {
+            if (sensorConfigs[i].status_led_pin == IOTWEBCONF_STATUS_LED)
+                return;
+        }
+        #ifdef WITH_MODBUS
+        for (uint8_t i = 0; i < numOfModbusSensors; i++)
+        {
+            if (modbusConfigs[i].status_led_pin == IOTWEBCONF_STATUS_LED)
+                return;
+        }
+        #endif
+
+        iotWebConf->setStatusPin(IOTWEBCONF_STATUS_LED);
     }
 
     void configSaved()

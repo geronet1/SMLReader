@@ -200,6 +200,10 @@ To login provide the user `admin` and the configured AP password.
 > [!IMPORTANT]
 > ***Attention: You have to change the AP Password (empty by default), otherwise SMLReader won't work.***
 
+> [!TIP]
+> If the onboard LED connected to D4 is not configured in the sensor setup it shows the IotWebconf status.
+> See [IotWebConf documentation](https://github.com/prampec/IotWebConf/blob/master/doc/UsersManual.md#connecting-to-a-wifi-network) for more info.
+
 ---
 
 ### Configuration
@@ -291,9 +295,9 @@ and a single register:
 The first block with 18 registers (9 float values / 32 bytes) is requested in one call instead of a single one for every value to save time, this way the overall request time for all blocks is under 200 ms at 38400 baud and the query interval can be reduced down to 1 second to get live values.
 Only the value "SDM_NEUTRAL_CURRENT" (two registers) is requested on its own. See the oscilloscope screenshots:
 
-![Oscilloscope image](doc/screenshots/screenshot_oszilloskop.png)
 ![Oscilloscope image](doc/screenshots/screenshot_oszilloskop1.png)
 ![Oscilloscope image](doc/screenshots/screenshot_oszilloskop2.png)
+![Oscilloscope image](doc/screenshots/screenshot_oszilloskop3.png)
 
 
 It is also possible to define two modbus slaves with the same name and slave id but different types and request intervals, e.g. to get power/voltage readings every second but the kWh registers every minute.
