@@ -182,11 +182,6 @@ public:
             if (slave->interval <= 0)
                 continue;
 
-            if (slave->serial == 0)
-            {
-                slave->serial = sdm->getSerialNumber(slave->id);
-            }
-
             if (millis() - slave->lastReadTime >= slave->interval * 1000)
             {
                 slave->lastReadTime = millis();
@@ -232,6 +227,11 @@ public:
                 }
                 else
                 {
+                    if (slave->serial == 0)
+                    {
+                        slave->serial = sdm->getSerialNumber(slave->id);
+                    }
+
                     if (slave->status_led_pin != NOT_A_PIN)
                         slave->status_led->Blink(40, 40).Repeat(3);
                 }

@@ -144,9 +144,10 @@ public:
   void publish(uint8_t index, ModbusSlaveConfig *slave)
   {
     char buffer[80];
-    String entryTopic = baseTopic + "modbus/" + slave->id + "/";
+    String entryTopic = baseTopic + "modbus/" + slave->name + "/";
     
-    publish(entryTopic + "name", slave->name, 0, true);
+    sprintf(buffer, "%d", slave->id);
+    publish(entryTopic + "id", buffer, 0, true);
 
     if (slave->serial != 0)
     {

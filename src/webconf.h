@@ -12,7 +12,7 @@ const uint8_t MAX_SENSORS = 4;
 
 struct GeneralWebConfig
 {
-    char numberOfSensors[2] = "1";
+    char numberOfSensors[2] = "0";
     char deepSleepInterval[5] = "";
 };
 
@@ -21,7 +21,7 @@ const uint8_t MAX_MODBUS = 3;
 
 struct ModbusWebConfig
 {
-    char numberOfSensors[2] = "1";
+    char numberOfSensors[2] = "0";
     char baud[10] = "9600";
     char mode[2] = {0 + 'A', '\0'};
     char direction_pin[2] = {1 + 'A', '\0'};
