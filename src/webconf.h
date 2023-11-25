@@ -379,6 +379,7 @@ public:
         }
         #endif
 
+        pinMode(IOTWEBCONF_STATUS_LED, OUTPUT);
         iotWebConf->setStatusPin(IOTWEBCONF_STATUS_LED);
 #endif
 
