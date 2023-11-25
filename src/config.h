@@ -13,6 +13,9 @@ const char *CONFIG_VERSION = "2.0.0";
 const char *WIFI_AP_SSID = "SMLReader";
 const char *WIFI_AP_DEFAULT_PASSWORD = "";
 
-#define WITH_MODBUS
+// enable Modbus
+#define MODBUS
+
+#define IOTWEBCONF_STATUS_LED D4
 
 #endif

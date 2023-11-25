@@ -28,9 +28,23 @@ typedef volatile struct
     uint8_t prec;
 } sdm_struct;
 
+typedef volatile struct
+{
+    const uint16_t start;
+    const uint16_t end;
+} register_struct;
+
+register_struct register_blocks[] = {
+    {SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER},                 // 1st block
+    {SDM_SUM_LINE_CURRENT, SDM_FREQUENCY},                    // 2nd block
+    {SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS}, // 3rd block
+    {SDM_IMPORT_ACTIVE_ENERGY, SDM_EXPORT_ACTIVE_ENERGY},     // 4th block
+    {SDM_NEUTRAL_CURRENT, 0},                                 // single value
+};
+
 #define NBREG 22 // number of sdm registers to read
 volatile sdm_struct sdmarr[NBREG] = {
-// float value, register number, mqtt name, precision
+    // float value, register number, mqtt name, precision
     {NAN, SDM_PHASE_1_VOLTAGE, "voltage_L1", 1}, // V
     {NAN, SDM_PHASE_2_VOLTAGE, "voltage_L2", 1}, // V
     {NAN, SDM_PHASE_3_VOLTAGE, "voltage_L3", 1}, // V
@@ -55,8 +69,8 @@ volatile sdm_struct sdmarr[NBREG] = {
     {NAN, SDM_LINE_2_TO_LINE_3_VOLTS, "voltage_L2_L3", 1}, // V
     {NAN, SDM_LINE_3_TO_LINE_1_VOLTS, "voltage_L3_L1", 1}, // V
 
-    {NAN, SDM_IMPORT_ACTIVE_ENERGY, "energy_import", 3},         // kWh
-    {NAN, SDM_EXPORT_ACTIVE_ENERGY, "energy_export", 3},         // kWh
+    {NAN, SDM_IMPORT_ACTIVE_ENERGY, "energy_import", 3}, // kWh
+    {NAN, SDM_EXPORT_ACTIVE_ENERGY, "energy_export", 3}, // kWh
 };
 
 void clear_sdmarr()
@@ -80,6 +94,19 @@ void insert_result(uint16_t reg, float result)
     }
 }
 
+// States
+enum ModbusState
+{
+    MODBUS_STANDBY,
+    MODBUS_IDLE,
+    MODBUS_PREPARE_TO_TRANSMIT,
+    MODBUS_START_TRANSMIT,
+    MODBUS_TRANSMIT,
+    MODBUS_RECEIVE,
+    MODBUS_PROCESS_MESSAGE,
+    MODBUS_FINISH,
+};
+
 class ModbusConfig
 {
 public:
@@ -88,8 +115,8 @@ public:
     uint8_t mode = SERIAL_8N1;
     int direction_pin = NOT_A_PIN;
     bool swapuart = false;
-    int msTurnaround = WAITING_TURNAROUND_DELAY;
-    int msTimeout = RESPONSE_TIMEOUT;
+    uint16_t msDelay = SDM_TRANSMIT_DELAY;
+    uint16_t msTimeout = SDM_RESPONSE_TIMEOUT;
 };
 
 class ModbusSlaveConfig
@@ -108,11 +135,6 @@ public:
     uint16_t cnterrors;
     uint16_t cntsuccess;
     uint16_t lasterror;
-    uint16_t crc_errors;
-    uint16_t wb_errors;
-    uint16_t neb_errors;
-    uint16_t tmt_errors;
-
 };
 
 class Modbus
@@ -121,12 +143,13 @@ class Modbus
     const ModbusConfig *config;
     ModbusSlaveConfig *slave_config;
     SDM *sdm;
+    ModbusState state = MODBUS_IDLE;
 #ifndef USE_HARDWARESERIAL
     SoftwareSerial swSerSDM;
 #endif
 
 public:
-    Modbus(const ModbusConfig *config, ModbusSlaveConfig slave_config[], void (*callback)(uint8_t slave))
+    Modbus(const ModbusConfig *config, ModbusSlaveConfig slave_config[], void (*callback)(uint8_t index, uint8_t slave_index))
     {
         DEBUG("Initializing modbus");
         this->config = config;
@@ -140,7 +163,7 @@ public:
 #endif
         sdm->begin();
 
-        sdm->setMsTurnaround(config->msTurnaround);
+        sdm->setMsDelay(config->msDelay);
         sdm->setMsTimeout(config->msTimeout);
 
         for (uint8_t i = 0; i < config->numSlaves; i++)
@@ -153,7 +176,6 @@ public:
                 if (slave->status_led_inverted)
                     slave->status_led->LowActive();
             }
-
         }
         DEBUG("Initialized Modbus with %d baud and mode %d, swapped = %s", config->baud, config->mode, config->swapuart ? "true" : "false");
     }
@@ -172,116 +194,251 @@ public:
 
     void loop()
     {
+        static uint8_t slave_index = 0;
+        static uint8_t block_index = 0;
+        static unsigned long time = 0;
+        static uint8_t error = SDM_ERR_NO_ERROR;
+
+        ModbusSlaveConfig *slave = &(slave_config[slave_index]);
+
+        switch (state)
+        {
+        case MODBUS_STANDBY:
+            break;
+        case MODBUS_IDLE:
+            if (this->callback != NULL)
+            {
+                for (uint8_t i = 0; i < NBREG; i++)
+                {
+                    if (error != SDM_ERR_NO_ERROR)
+                    {
+                        this->callback(0xFF, slave_index);
+                        error = SDM_ERR_NO_ERROR;
+                        return;
+                    }
+                    if (!isnan(sdmarr[i].regvalarr))
+                    {
+                        if (this->callback != NULL)
+                            this->callback(i, slave_index);
+                        return; // publish only one topic at a time
+                                // and don't advance to next slave until all are published
+                    }
+                }
+            }
+            for (uint8_t i = 0; i < config->numSlaves; i++)
+            {
+                slave = &(slave_config[i]);
+
+                if (slave->interval <= 0)
+                    continue;
+
+                if (millis() - slave->lastReadTime >= slave->interval * 1000)
+                {
+                    slave->lastReadTime = millis();
+                    slave_index = i;
+                    block_index = 0;
+                    state = MODBUS_PREPARE_TO_TRANSMIT;
+                }
+            }
+            break;
+        case MODBUS_PREPARE_TO_TRANSMIT:
+            time = millis(); // delay for pre-transmit
+            sdm->enableTransmit();
+            state = MODBUS_START_TRANSMIT;
+            break;
+        case MODBUS_START_TRANSMIT:
+            // fix for issue (nan reading) by sjfaustino: https://github.com/reaper7/SDM_Energy_Meter/issues/7#issuecomment-272111524
+            if (millis() > time + config->msDelay)
+            {
+                sdm->Transmit(register_blocks[block_index].start, register_blocks[block_index].end, slave->id, SDM_READ_INPUT_REGISTER);
+                time = millis(); // time for transmit
+                state = MODBUS_TRANSMIT;
+            }
+            break;
+        case MODBUS_TRANSMIT:
+            if (millis() > time + int(8*10*1000 / config->baud))    // 8 bytes * 10 bit/byte * 1000 ms / baudrate
+            {
+                sdm->disableTransmit();
+                time = millis(); // timeout for receiving
+                // clear_sdmarr();
+                state = MODBUS_RECEIVE;
+            }
+            break;
+        case MODBUS_RECEIVE:
+            if (sdm->Receive())
+            {
+                state = MODBUS_PROCESS_MESSAGE;
+            }
+            else
+            {
+                if (millis() > time + config->msTimeout)
+                {
+                    // not enough data received
+                    slave->cnterrors++;
+                    if (sdm->available() == 5)
+                        slave->lasterror = sdm->ReceiveError();
+                    else
+                        slave->lasterror = SDM_ERR_NOT_ENOUGHT_BYTES;
+
+                    if (slave->status_led_pin != NOT_A_PIN)
+                        slave->status_led->Blink(100, 50).Repeat(3);
+
+                    error = SDM_ERR_NOT_ENOUGHT_BYTES;
+                    state = MODBUS_IDLE;
+                }
+            }
+            break;
+        case MODBUS_PROCESS_MESSAGE:
+            error = sdm->Process(insert_result);
+            if (error == SDM_ERR_NO_ERROR)
+            {
+                slave->cntsuccess++;
+                state = MODBUS_FINISH;
+            }
+            else
+            {
+                slave->cnterrors++;
+                slave->lasterror = error;
+                if (slave->status_led_pin != NOT_A_PIN)
+                    slave->status_led->Blink(100, 50).Repeat(3);
+
+                state = MODBUS_IDLE;
+            }
+            break;
+        case MODBUS_FINISH:
+            if (++block_index < sizeof(register_blocks - 1))
+            {
+                state = MODBUS_PREPARE_TO_TRANSMIT;
+            }
+            else
+            {
+                state = MODBUS_IDLE;
+                if (slave->status_led_pin != NOT_A_PIN)
+                    slave->status_led->Blink(30, 30).Repeat(3);
+            }
+            break;
+        }
+
         for (uint8_t i = 0; i < config->numSlaves; i++)
         {
             ModbusSlaveConfig *slave = &(slave_config[i]);
 
             if (slave->status_led_pin != NOT_A_PIN)
                 slave->status_led->Update();
-
-            if (slave->interval <= 0)
-                continue;
-
-            if (millis() - slave->lastReadTime >= slave->interval * 1000)
-            {
-                slave->lastReadTime = millis();
-                uint8_t error = SDM_ERR_NO_ERROR;
-                clear_sdmarr();
-
-                if (slave->type == SDM630_V)
-                {
-                    // 1. Registerblock von
-                    error = sdm->readValues(SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER, slave->id, insert_result);
-                    if (error == SDM_ERR_NO_ERROR)
-                    {
-                        // 2. Registerblock
-                        error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_FREQUENCY, slave->id, insert_result);
-                        if (error == SDM_ERR_NO_ERROR)
-                        {
-                            // 3. Registerblock
-                            error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave->id, insert_result);
-                            if (error == SDM_ERR_NO_ERROR)
-                            {
-                                // 30224
-                                float res = 0;
-                                res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave->id);
-                                insert_result(SDM_NEUTRAL_CURRENT, res);
-                            }
-                        }
-                    }
-                }
-                else if (slave->type == SDM630_E)
-                {
-                    error = sdm->readValues(SDM_IMPORT_ACTIVE_ENERGY, SDM_EXPORT_ACTIVE_ENERGY, slave->id, insert_result);
-                }
-                else if (slave->type == SDM_EXAMPLE)
-                {
-                    error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave->id, insert_result);
-                }
-
-                if (error != SDM_ERR_NO_ERROR)
-                {
-                    DEBUG("Modbus readValues error:%d\n", error);
-                    if (slave->status_led_pin != NOT_A_PIN)
-                        slave->status_led->Blink(200, 200).Repeat(2);
-                }
-                else
-                {
-                    if (slave->serial == 0)
-                    {
-                        slave->serial = sdm->getSerialNumber(slave->id);
-                    }
-
-                    if (slave->status_led_pin != NOT_A_PIN)
-                        slave->status_led->Blink(40, 40).Repeat(3);
-                }
-
-                slave->cnterrors = sdm->getErrCount();
-                slave->cntsuccess = sdm->getSuccCount();
-                
-                if (error == SDM_ERR_NO_ERROR)
-                    error = sdm->getErrCode(true);
-
-                switch(error)
-                {
-                    case SDM_ERR_CRC_ERROR:
-                        slave->crc_errors++;
-                        break;
-                    case SDM_ERR_WRONG_BYTES:
-                        slave->wb_errors++;
-                        break;
-                    case SDM_ERR_NOT_ENOUGHT_BYTES:
-                        slave->neb_errors++;
-                        break;
-                    case SDM_ERR_TIMEOUT:
-                        slave->tmt_errors++;
-                        break;
-
-                }
-
-                if (error != SDM_ERR_NO_ERROR)
-                    slave->lasterror = error;
-
-                /*
-                    DEBUG("Modbus slave [%s] ID: %d:", slave->name, slave->slave_id);
-                    for (uint8_t j = 0; j < NBREG; j++)
-                    {
-                        DEBUG("%s: %f", sdmarr[j].name, sdmarr[j].regvalarr);
-                    }
-                */
-                // Call listener
-                if (this->callback != NULL)
-                {
-                    this->callback(i);
-                }
-
-            }
-            yield();
         }
     }
 
+    /*
+            void loop_old()
+            {
+                for (uint8_t i = 0; i < config->numSlaves; i++)
+                {
+                    ModbusSlaveConfig *slave = &(slave_config[i]);
+
+                    if (slave->status_led_pin != NOT_A_PIN)
+                        slave->status_led->Update();
+
+                    if (slave->interval <= 0)
+                        continue;
+
+                    if (millis() - slave->lastReadTime >= slave->interval * 1000)
+                    {
+                        slave->lastReadTime = millis();
+                        uint8_t error = SDM_ERR_NO_ERROR;
+                        clear_sdmarr();
+
+                        if (slave->type == SDM630_V)
+                        {
+                            // 1. Registerblock von
+                            error = sdm->readValues(SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER, slave->id, insert_result);
+                            if (error == SDM_ERR_NO_ERROR)
+                            {
+                                // 2. Registerblock
+                                error = sdm->readValues(SDM_SUM_LINE_CURRENT, SDM_FREQUENCY, slave->id, insert_result);
+                                if (error == SDM_ERR_NO_ERROR)
+                                {
+                                    // 3. Registerblock
+                                    error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave->id, insert_result);
+                                    if (error == SDM_ERR_NO_ERROR)
+                                    {
+                                        // 30224
+                                        float res = 0;
+                                        res = sdm->readVal(SDM_NEUTRAL_CURRENT, slave->id);
+                                        insert_result(SDM_NEUTRAL_CURRENT, res);
+                                    }
+                                }
+                            }
+                        }
+                        else if (slave->type == SDM630_E)
+                        {
+                            error = sdm->readValues(SDM_IMPORT_ACTIVE_ENERGY, SDM_EXPORT_ACTIVE_ENERGY, slave->id, insert_result);
+                        }
+                        else if (slave->type == SDM_EXAMPLE)
+                        {
+                            error = sdm->readValues(SDM_LINE_1_TO_LINE_2_VOLTS, SDM_LINE_3_TO_LINE_1_VOLTS, slave->id, insert_result);
+                        }
+
+                        if (error != SDM_ERR_NO_ERROR)
+                        {
+                            DEBUG("Modbus readValues error:%d\n", error);
+                            if (slave->status_led_pin != NOT_A_PIN)
+                                slave->status_led->Blink(200, 200).Repeat(2);
+                        }
+                        else
+                        {
+                            if (slave->serial == 0)
+                            {
+                                slave->serial = sdm->getSerialNumber(slave->id);
+                            }
+
+                            if (slave->status_led_pin != NOT_A_PIN)
+                                slave->status_led->Blink(40, 40).Repeat(3);
+                        }
+
+                        slave->cnterrors = sdm->getErrCount();
+                        slave->cntsuccess = sdm->getSuccCount();
+
+                        if (error == SDM_ERR_NO_ERROR)
+                            error = sdm->getErrCode(true);
+
+                        switch (error)
+                        {
+                        case SDM_ERR_CRC_ERROR:
+                            slave->crc_errors++;
+                            break;
+                        case SDM_ERR_WRONG_BYTES:
+                            slave->wb_errors++;
+                            break;
+                        case SDM_ERR_NOT_ENOUGHT_BYTES:
+                            slave->neb_errors++;
+                            break;
+                        case SDM_ERR_TIMEOUT:
+                            slave->tmt_errors++;
+                            break;
+                        }
+
+                        if (error != SDM_ERR_NO_ERROR)
+                            slave->lasterror = error;
+
+                        /
+                            DEBUG("Modbus slave [%s] ID: %d:", slave->name, slave->slave_id);
+                            for (uint8_t j = 0; j < NBREG; j++)
+                            {
+                                DEBUG("%s: %f", sdmarr[j].name, sdmarr[j].regvalarr);
+                            }
+                        *
+                        // Call listener
+                        if (this->callback != NULL)
+                        {
+                            this->callback(i);
+                        }
+                    }
+                    yield();
+                }
+            }
+    */
 private:
-    void (*callback)(uint8_t index) = NULL;
+    void (*callback)(uint8_t index, uint8_t slave_index) = NULL;
 };
 
 #endif

@@ -67,6 +67,7 @@ public:
             {
                 this->status_led->LowActive();
             }
+            status_led->Off().Update();
         }
 
         this->init_state();
@@ -218,7 +219,7 @@ private:
                 DEBUG("Start sequence found.");
                 if (this->config->status_led_pin != NOT_A_PIN)
                 {
-                    this->status_led->Blink(50, 50).Repeat(3);
+                    this->status_led->Blink(10, 10).Repeat(2).Update();
                 }
                 this->set_state(READ_MESSAGE);
                 return;

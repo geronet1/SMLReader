@@ -2,6 +2,33 @@
     "folders": [
         {
             "path": "."
+        },
+        {
+            "name": "uart test",
+            "path": "../UART test/uart test"
         }
-    ]
+    ],
+    "settings": {
+        "files.associations": {
+            "array": "cpp",
+            "*.tcc": "cpp",
+            "string": "cpp",
+            "unordered_map": "cpp",
+            "memory": "cpp",
+            "optional": "cpp",
+            "string_view": "cpp",
+            "fstream": "cpp",
+            "istream": "cpp",
+            "ostream": "cpp",
+            "sstream": "cpp",
+            "streambuf": "cpp",
+            "functional": "cpp",
+            "tuple": "cpp",
+            "deque": "cpp",
+            "list": "cpp",
+            "vector": "cpp",
+            "initializer_list": "cpp",
+            "ranges": "cpp"
+        }
+    }
 }

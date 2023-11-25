@@ -7,7 +7,7 @@
 #include "webconf.h"
 #include "Sensor.h"
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
 #include "modbus.h"
 #endif
 
@@ -24,7 +24,7 @@ uint8_t numOfSensors;
 SensorConfig sensorConfigs[MAX_SENSORS];
 Sensor *sensors[MAX_SENSORS];
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
 uint8_t numOfModbusSensors;
 ModbusConfig modbusConfig;
 ModbusSlaveConfig modbusSlaveConfigs[MAX_MODBUS];
@@ -51,10 +51,10 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
     sml_file_free(file);
 }
 
-#ifdef WITH_MODBUS
-void process_modbus_message(uint8_t index)
+#ifdef MODBUS
+void process_modbus_message(uint8_t index, uint8_t slave_index)
 {
-    publisher.publish(index, &(modbusSlaveConfigs[index]));
+    publisher.publish(index, &(modbusSlaveConfigs[slave_index]));
 }
 #endif
 
@@ -63,18 +63,20 @@ void setup()
     // Setup debugging stuff
     SERIAL_DEBUG_SETUP(115200);
 
-#ifdef DEBUG
-#ifdef WITH_MODBUS
-    Serial.setDebugOutput(false);
-    Serial1.setDebugOutput(true);
-#endif
+#ifdef SERIAL_DEBUG
     // Delay for getting a serial console attached in time
     delay(2000);
 #endif
+
+#ifdef MODBUS 
+    Serial.setDebugOutput(false);
+    Serial1.setDebugOutput(true);
+#endif
+
     webConf = new WebConf(&wifiConnected, &status);
 
     webConf->loadWebconf(mqttConfig, sensorConfigs, numOfSensors,
-#ifdef WITH_MODBUS
+#ifdef MODBUS
                         modbusConfig, modbusSlaveConfigs, numOfModbusSensors,
 #endif
                         deepSleepInterval);
@@ -91,7 +93,7 @@ void setup()
     }
     DEBUG("Sensor setup done.");
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
     DEBUG("Setting up %d configured modbus devices...", numOfModbusSensors);
     modbusConfig.numSlaves = numOfModbusSensors;
     const ModbusConfig *mconfig = &modbusConfig;
@@ -101,6 +103,11 @@ void setup()
 #endif
 
     DEBUG("Setup done.");
+/*
+    pinMode(D4, OUTPUT);
+    pinMode(D5, OUTPUT);
+    pinMode(D6, OUTPUT);
+    */
 }
 
 void loop()
@@ -113,6 +120,7 @@ void loop()
         ESP.restart();
     }
 
+//    digitalWrite(D5, LOW);
     bool allSensorsProcessedMessage=true;
     // Execute sensor state machines
     for (uint8_t i = 0; i < numOfSensors; i++)
@@ -120,9 +128,12 @@ void loop()
         sensors[i]->loop();
         allSensorsProcessedMessage&=sensors[i]->hasProcessedMessage();
     }
+//    digitalWrite(D5, HIGH);
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
+//    digitalWrite(D4, LOW);
     modbus->loop();
+//    digitalWrite(D4, HIGH);
 #endif
 
     webConf->doLoop();
@@ -140,6 +151,7 @@ void loop()
             ESP.deepSleep(deepSleepInterval * 1000000);
         }
     }
+    //    yield();
     delay(1);
 }
 

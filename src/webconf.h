@@ -8,7 +8,6 @@
 #include "MqttPublisher.h"
 
 const uint8_t MAX_SENSORS = 4;
-#define IOTWEBCONF_STATUS_LED D4
 
 struct GeneralWebConfig
 {
@@ -16,7 +15,7 @@ struct GeneralWebConfig
     char deepSleepInterval[5] = "";
 };
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
 const uint8_t MAX_MODBUS = 3;
 
 struct ModbusWebConfig
@@ -26,8 +25,8 @@ struct ModbusWebConfig
     char mode[2] = {0 + 'A', '\0'};
     char direction_pin[2] = {1 + 'A', '\0'};
     char swapuart[9] = "selected";
-    char msTurnaround[6] = "300";
-    char msTimeout[6] = "5";
+    char msDelay[6] = "5";
+    char msTimeout[6] = "300";
 };
 #endif
 
@@ -41,7 +40,7 @@ struct SensorWebConfig
     char interval[5] = "0";
 };
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
 struct ModbusSensorWebConfig
 {
     char name[32] = "modbus0";
@@ -58,7 +57,7 @@ struct WebConfGroups
     iotwebconf::ParameterGroup *generalGroup;
     iotwebconf::ParameterGroup *mqttGroup;
     iotwebconf::ParameterGroup *sensorGroups[MAX_SENSORS];
-#ifdef WITH_MODBUS
+#ifdef MODBUS
     iotwebconf::ParameterGroup *modbusGroup;
     iotwebconf::ParameterGroup *modbusGroups[MAX_MODBUS];
 #endif
@@ -82,7 +81,7 @@ const char pinOptions[] = {NOT_A_PIN + 'A', '\0', D0 + 'A', '\0', D1 + 'A', '\0'
 const uint8_t PIN_LABEL_LENGTH = 3;
 const char *pinNames[] = {"--", "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"};
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
 struct ModbusStrings
 {
     char grpid[8] = "modbus0";
@@ -118,7 +117,7 @@ private:
     GeneralWebConfig general;
     MqttConfig mqtt;
     SensorWebConfig sensors[MAX_SENSORS];
-#ifdef WITH_MODBUS
+#ifdef MODBUS
     ModbusWebConfig modbus;
     ModbusSensorWebConfig modbus_sensors[MAX_MODBUS];
 #endif
@@ -173,7 +172,7 @@ public:
     {
         GeneralWebConfig &generalConfig = this->general;
         MqttConfig &mqttConfig = this->mqtt;
-#ifdef WITH_MODBUS
+#ifdef MODBUS
         ModbusWebConfig &modbusConfig = this->modbus;
 #endif
         using namespace iotwebconf;
@@ -195,7 +194,7 @@ public:
         mqttGroup->addItem(new CheckboxParameter("MQTT JSON Payload", "mqttJsonPayload", mqttConfig.jsonPayload, sizeof(mqttConfig.jsonPayload), mqttConfig.jsonPayload));
         iotWebConf->addParameterGroup(mqttGroup);
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
         ParameterGroup *&modbusGroup = this->groups.modbusGroup = new ParameterGroup("modbus", "Modbus");
         static char numOfModbusValidator[] = "min='0' max='0'";
         numOfModbusValidator[13] = MAX_MODBUS + '0';
@@ -207,8 +206,9 @@ public:
 
         static char numOfTimeValidator[20];
         snprintf(numOfTimeValidator, 20, "min='%d' max='%d'", SDM_MIN_DELAY, SDM_MAX_DELAY);
-        modbusGroup->addItem(new NumberParameter("Turnaround delay (ms)", "msturnaround", modbusConfig.msTurnaround, sizeof(modbusConfig.msTurnaround), modbusConfig.msTurnaround, nullptr, numOfTimeValidator));
-        modbusGroup->addItem(new NumberParameter("Response timeout (ms)", "mstimeout", modbusConfig.msTimeout, sizeof(modbusConfig.msTimeout), modbusConfig.msTimeout, nullptr, numOfTimeValidator));
+        modbusGroup->addItem(new NumberParameter("Transmit delay (ms)", "msdelay", modbusConfig.msDelay, sizeof(modbusConfig.msDelay), modbusConfig.msDelay, nullptr, numOfTimeValidator));
+        snprintf(numOfTimeValidator, 20, "min='%d' max='%d'", 0, SDM_MAX_TIMEOUT);
+        modbusGroup->addItem(new NumberParameter("Timeout (ms)", "mstimeout", modbusConfig.msTimeout, sizeof(modbusConfig.msTimeout), modbusConfig.msTimeout, nullptr, numOfTimeValidator));
         iotWebConf->addParameterGroup(modbusGroup);
 #endif
 
@@ -237,7 +237,7 @@ public:
             iotWebConf->addParameterGroup(sensorGroup);
         }
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
         for (byte i = 0; i < MAX_MODBUS; i++)
         {
             char modbusIdChar = i + '0';
@@ -266,7 +266,7 @@ public:
     }
 
     void loadWebconf(MqttConfig &mqttConfig, SensorConfig sensorConfigs[MAX_SENSORS], uint8_t &numOfSensors,
-#ifdef WITH_MODBUS
+#ifdef MODBUS
                      ModbusConfig &modbusConfig, ModbusSlaveConfig modbusConfigs[MAX_MODBUS], uint8_t &numOfModbusSensors,
 #endif
                      uint16_t &deepSleepInterval)
@@ -291,7 +291,7 @@ public:
             {
                 this->groups.sensorGroups[i]->visible = false;
             }
-#ifdef WITH_MODBUS
+#ifdef MODBUS
             numOfModbusSensors = 0;
             for (uint8_t i = 0; i < MAX_MODBUS; i++)
             {
@@ -321,7 +321,7 @@ public:
                 sensorConfigs[i].status_led_pin = this->sensors[i].status_led_pin[0] - 'A';
             }
 
-#ifdef WITH_MODBUS
+#ifdef MODBUS
             numOfModbusSensors = this->modbus.numberOfSensors[0] - '0';
             numOfModbusSensors = numOfModbusSensors < MAX_MODBUS ? numOfModbusSensors : MAX_MODBUS;
             modbusConfig.baud = atoi(this->modbus.baud);
@@ -345,7 +345,7 @@ public:
                 modbusConfig.direction_pin = NOT_A_PIN;
 
             modbusConfig.swapuart = this->modbus.swapuart[0] == 's';
-            modbusConfig.msTurnaround = atoi(this->modbus.msTurnaround);
+            modbusConfig.msDelay = atoi(this->modbus.msDelay);
             modbusConfig.msTimeout = atoi(this->modbus.msTimeout);
 
             numOfModbusSensors = numOfModbusSensors < MAX_MODBUS ? numOfModbusSensors : MAX_MODBUS;
@@ -364,13 +364,14 @@ public:
             deepSleepInterval = atoi(this->general.deepSleepInterval);
         }
 
+#ifdef IOTWEBCONF_STATUS_LED
         // set status led for iotwebconf if not otherwise used
         for (uint8_t i = 0; i < numOfSensors; i++)
         {
             if (sensorConfigs[i].status_led_pin == IOTWEBCONF_STATUS_LED)
                 return;
         }
-        #ifdef WITH_MODBUS
+        #ifdef MODBUS
         for (uint8_t i = 0; i < numOfModbusSensors; i++)
         {
             if (modbusConfigs[i].status_led_pin == IOTWEBCONF_STATUS_LED)
@@ -379,8 +380,9 @@ public:
         #endif
 
         iotWebConf->setStatusPin(IOTWEBCONF_STATUS_LED);
-    }
+#endif
 
+    }
     void configSaved()
     {
         DEBUG("Configuration was updated.");
