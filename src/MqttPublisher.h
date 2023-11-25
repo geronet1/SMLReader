@@ -84,16 +84,12 @@ public:
 
   void publish(Sensor *sensor, sml_file *file)
   {
-/*    if (sensor->config->status_led_pin != NOT_A_PIN)
+    if (sensor->config->status_led_pin != NOT_A_PIN)
     {
-      if (file->messages_len == 0)
-      {
-        sensor->status_led->Blink(5, 5).Repeat(3).Update();
-      }
-      else
-        sensor->status_led->Blink(5, 5).Update();
+      if (file->messages_len != 0)
+        sensor->status_led->Blink(40, 40).Repeat(2).Update();
     }
-*/
+
     for (int i = 0; i < file->messages_len; i++)
     {
       sml_message *message = file->messages[i];

@@ -89,6 +89,8 @@ public:
         }
     }
 
+    unique_ptr<JLed> status_led;
+
 private:
     unique_ptr<SoftwareSerial> serial;
     byte buffer[BUFFER_SIZE];
@@ -99,7 +101,6 @@ private:
     uint8_t loop_counter = 0;
     State state = INIT;
     void (*callback)(byte *buffer, size_t len, Sensor *sensor) = NULL;
-    unique_ptr<JLed> status_led;
     bool processedMessage;
 
     void run_current_state()
@@ -219,7 +220,7 @@ private:
                 DEBUG("Start sequence found.");
                 if (this->config->status_led_pin != NOT_A_PIN)
                 {
-                    this->status_led->Blink(10, 10).Repeat(2).Update();
+                    this->status_led->Blink(50, 50).Update();
                 }
                 this->set_state(READ_MESSAGE);
                 return;
@@ -236,6 +237,7 @@ private:
             if ((this->position + 3) == BUFFER_SIZE)
             {
                 this->reset_state("Buffer will overflow, starting over.");
+
                 return;
             }
             this->buffer[this->position++] = this->data_read();

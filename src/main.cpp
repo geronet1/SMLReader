@@ -103,11 +103,6 @@ void setup()
 #endif
 
     DEBUG("Setup done.");
-/*
-    pinMode(D4, OUTPUT);
-    pinMode(D5, OUTPUT);
-    pinMode(D6, OUTPUT);
-    */
 }
 
 void loop()
@@ -120,7 +115,6 @@ void loop()
         ESP.restart();
     }
 
-//    digitalWrite(D5, LOW);
     bool allSensorsProcessedMessage=true;
     // Execute sensor state machines
     for (uint8_t i = 0; i < numOfSensors; i++)
@@ -128,12 +122,9 @@ void loop()
         sensors[i]->loop();
         allSensorsProcessedMessage&=sensors[i]->hasProcessedMessage();
     }
-//    digitalWrite(D5, HIGH);
 
 #ifdef MODBUS
-//    digitalWrite(D4, LOW);
     modbus->loop();
-//    digitalWrite(D4, HIGH);
 #endif
 
     webConf->doLoop();

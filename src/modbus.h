@@ -303,7 +303,7 @@ public:
             {
                 state = MODBUS_PUBLISH;
                 if (slave->status_led_pin != NOT_A_PIN)
-                    slave->status_led->Blink(30, 30).Repeat(3);
+                    slave->status_led->Blink(50, 50).Repeat(2);
             }
             break;
         case MODBUS_PUBLISH:
