@@ -13,8 +13,7 @@ using namespace std;
 
 enum modbus_types
 {
-    SDM630_V,
-    SDM630_E,
+    SDM630,
     SDM_EXAMPLE,
 };
 
@@ -105,7 +104,11 @@ enum ModbusState
     MODBUS_RECEIVE,
     MODBUS_PROCESS_MESSAGE,
     MODBUS_FINISH,
+    MODBUS_PUBLISH,
 };
+
+#define MODBUS_PUBLISH_ERROR 0xFE
+#define MODBUS_PUBLISH_ID_SERIAL 0xFF
 
 class ModbusConfig
 {
@@ -198,7 +201,6 @@ public:
         static uint8_t block_index = 0;
         static unsigned long time = 0;
         static uint8_t error = SDM_ERR_NO_ERROR;
-
         ModbusSlaveConfig *slave = &(slave_config[slave_index]);
 
         switch (state)
@@ -206,31 +208,18 @@ public:
         case MODBUS_STANDBY:
             break;
         case MODBUS_IDLE:
-            if (this->callback != NULL)
-            {
-                for (uint8_t i = 0; i < NBREG; i++)
-                {
-                    if (error != SDM_ERR_NO_ERROR)
-                    {
-                        this->callback(0xFF, slave_index);
-                        error = SDM_ERR_NO_ERROR;
-                        return;
-                    }
-                    if (!isnan(sdmarr[i].regvalarr))
-                    {
-                        if (this->callback != NULL)
-                            this->callback(i, slave_index);
-                        return; // publish only one topic at a time
-                                // and don't advance to next slave until all are published
-                    }
-                }
-            }
             for (uint8_t i = 0; i < config->numSlaves; i++)
             {
                 slave = &(slave_config[i]);
 
                 if (slave->interval <= 0)
                     continue;
+
+                if (slave->serial == 0)
+                {
+                    slave->serial = sdm->getSerialNumber(slave->id);
+                    return;
+                }
 
                 if (millis() - slave->lastReadTime >= slave->interval * 1000)
                 {
@@ -256,7 +245,7 @@ public:
             }
             break;
         case MODBUS_TRANSMIT:
-            if (millis() > time + int(8*10*1000 / config->baud))    // 8 bytes * 10 bit/byte * 1000 ms / baudrate
+            if (millis() > time + int(8 * 10 * 1000 / config->baud)) // 8 bytes * 10 bit/byte * 1000 ms / baudrate
             {
                 sdm->disableTransmit();
                 time = millis(); // timeout for receiving
@@ -284,7 +273,7 @@ public:
                         slave->status_led->Blink(100, 50).Repeat(3);
 
                     error = SDM_ERR_NOT_ENOUGHT_BYTES;
-                    state = MODBUS_IDLE;
+                    state = MODBUS_PUBLISH;
                 }
             }
             break;
@@ -302,7 +291,7 @@ public:
                 if (slave->status_led_pin != NOT_A_PIN)
                     slave->status_led->Blink(100, 50).Repeat(3);
 
-                state = MODBUS_IDLE;
+                state = MODBUS_PUBLISH;
             }
             break;
         case MODBUS_FINISH:
@@ -312,9 +301,33 @@ public:
             }
             else
             {
-                state = MODBUS_IDLE;
+                state = MODBUS_PUBLISH;
                 if (slave->status_led_pin != NOT_A_PIN)
                     slave->status_led->Blink(30, 30).Repeat(3);
+            }
+            break;
+        case MODBUS_PUBLISH:
+            if (this->callback != NULL)
+            {
+                for (uint8_t i = 0; i < NBREG; i++)
+                {
+                    if (error != SDM_ERR_NO_ERROR)
+                    {
+                        this->callback(MODBUS_PUBLISH_ERROR, slave_index);
+                        state = MODBUS_IDLE;
+                        return;
+                    }
+                    if (!isnan(sdmarr[i].regvalarr))
+                    {
+                        this->callback(i, slave_index);
+                        return; // publish only one topic at a time
+                                // and don't advance to next slave until all are published
+                    }
+                }
+                // no error and nothing to publish any more
+                this->callback(MODBUS_PUBLISH_ID_SERIAL, slave_index);
+                state = MODBUS_IDLE;
+
             }
             break;
         }

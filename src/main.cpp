@@ -151,8 +151,8 @@ void loop()
             ESP.deepSleep(deepSleepInterval * 1000000);
         }
     }
-    //    yield();
-    delay(1);
+    yield();
+    //delay(1);
 }
 
 void status(WebServer* server)

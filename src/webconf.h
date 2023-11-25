@@ -45,7 +45,7 @@ struct ModbusSensorWebConfig
 {
     char name[32] = "modbus0";
     char id[4] = "0";
-    char type[2] = {SDM630_V + 'A', '\0'};
+    char type[2] = {SDM630 + 'A', '\0'};
     char status_led_pin[2] = {D6 + 'A', '\0'};
     char status_led_inverted[9] = "selected";
     char interval[5] = "0";
@@ -105,9 +105,9 @@ const char modeOptions[] = {0 + 'A', '\0', 1 + 'A', '\0', 2 + 'A', '\0', 3 + 'A'
 const char modeNames[][MODE_LABEL_LENGTH] = {"8N1", "8E1", "8O1", "8N2"};
 
 #define TYPE_LABEL_LENGTH 16
-const uint8_t NUMBER_OF_TYPES = 3;
-const char typeOptions[] = {SDM630_V + 'A', '\0', SDM630_E + 'A', '\0', SDM_EXAMPLE + 'A', '\0'};
-const char typeNames[][TYPE_LABEL_LENGTH] = {"SDM630_V", "SDM630_E", "example"};
+const uint8_t NUMBER_OF_TYPES = 2;
+const char typeOptions[] = {SDM630 + 'A', '\0', SDM_EXAMPLE + 'A', '\0'};
+const char typeNames[][TYPE_LABEL_LENGTH] = {"SDM630", "example"};
 
 #endif
 

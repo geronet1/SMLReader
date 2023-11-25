@@ -151,28 +151,13 @@ public:
   }
 
 #ifdef MODBUS
-  void publish(uint8_t index, ModbusSlaveConfig *slave) // index:sdmarr_index, index == 0xFF: publish error
+  void publish(uint8_t index, ModbusSlaveConfig *slave)
   {
     char buffer[80];
     String entryTopic = baseTopic + "modbus/" + slave->name + "/";
 
-    if (index != 0xFF)
+    if (index == MODBUS_PUBLISH_ERROR)
     {
-      sprintf(buffer, "%.*f", sdmarr[index].prec, sdmarr[index].regvalarr);
-      publish(entryTopic + (char *)(sdmarr[index].name), buffer);
-      sdmarr[index].regvalarr = NAN;
-    }
-    else
-    {
-      sprintf(buffer, "%d", slave->id);
-      publish(entryTopic + "id", buffer, 0, true);
-
-      if (slave->serial != 0)
-      {
-        sprintf(buffer, "%u", slave->serial);
-        publish(entryTopic + "serial", buffer, 0, true);
-      }
-
       snprintf(buffer, 80, "{\"success\":%d,\"fail\":%d}", slave->cntsuccess, slave->cnterrors);
       publish(entryTopic + "error", buffer);
 
@@ -212,6 +197,23 @@ public:
         sprintf(buffer, "unknown: %d", slave->lasterror);
       };
       publish(entryTopic + "last_error", buffer);
+    }
+    else if (index == MODBUS_PUBLISH_ID_SERIAL)
+    {
+      sprintf(buffer, "%d", slave->id);
+      publish(entryTopic + "id", buffer, 0, true);
+
+      if (slave->serial != 0)
+      {
+        sprintf(buffer, "%u", slave->serial);
+        publish(entryTopic + "serial", buffer, 0, true);
+      }
+    }
+    else
+    {
+      sprintf(buffer, "%.*f", sdmarr[index].prec, sdmarr[index].regvalarr);
+      publish(entryTopic + (char *)(sdmarr[index].name), buffer);
+      sdmarr[index].regvalarr = NAN;
     }
   }
 #endif
