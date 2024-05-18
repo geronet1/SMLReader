@@ -6,19 +6,26 @@
 #include "config.h"
 #include "webconf.h"
 #include "Sensor.h"
+#include "SC16IS752.h"
 
 #ifdef MODBUS
 #include "modbus.h"
 #endif
 
 void wifiConnected();
-void status(WebServer*);
+void status(WebServer *);
 void configSaved();
 
 WebConf *webConf;
 
 MqttConfig mqttConfig;
 MqttPublisher publisher;
+
+SC16IS752 *spiuart;
+#define SC16IS752_CS D8 // GPIO15
+#define SC16IS752_IRQ D3 // GPIO0
+#define SC16IS752_BAUDRATE_A 9600
+#define SC16IS752_BAUDRATE_B 9600
 
 uint8_t numOfSensors;
 SensorConfig sensorConfigs[MAX_SENSORS];
@@ -31,8 +38,8 @@ ModbusSlaveConfig modbusSlaveConfigs[MAX_MODBUS];
 Modbus *modbus;
 #endif
 
+volatile bool uartNewData = false;
 uint16_t deepSleepInterval;
-
 uint64_t lastMessageTime = 0;
 
 bool connected = false;
@@ -58,6 +65,11 @@ void process_modbus_message(uint8_t index, uint8_t slave_index)
 }
 #endif
 
+void ICACHE_RAM_ATTR handleInterrupt()
+{
+    uartNewData = true;
+}
+
 void setup()
 {
     // Setup debugging stuff
@@ -68,24 +80,40 @@ void setup()
     delay(2000);
 #endif
 
-#ifdef MODBUS 
+#ifdef MODBUS
     Serial.setDebugOutput(false);
     Serial1.setDebugOutput(true);
 #endif
 
     webConf = new WebConf(&wifiConnected, &status);
 
-    webConf->loadWebconf(mqttConfig, sensorConfigs, numOfSensors,
+    webConf->loadWebconf(mqttConfig, sensorConfigs, &numOfSensors,
 #ifdef MODBUS
-                        modbusConfig, modbusSlaveConfigs, numOfModbusSensors,
+                         modbusConfig, modbusSlaveConfigs, &numOfModbusSensors,
 #endif
-                        deepSleepInterval);
+                         deepSleepInterval);
 
     // Setup MQTT publisher
     publisher.setup(mqttConfig);
 
+    DEBUG("Setting up external UART...");
+    spiuart = new SC16IS752(SC16IS750_PROTOCOL_SPI, SC16IS752_CS);
+    if (spiuart->begin(SC16IS752_BAUDRATE_A, SC16IS752_BAUDRATE_B)) 
+    {
+        DEBUG("OK");
+    }
+    else
+    {
+        DEBUG("not found");
+    }
+    spiuart->EnableTransmit(SC16IS752_CHANNEL_A, false);
+    spiuart->EnableTransmit(SC16IS752_CHANNEL_B, false);
+
+    pinMode(SC16IS752_IRQ, INPUT);
+	attachInterrupt(digitalPinToInterrupt(SC16IS752_IRQ), handleInterrupt, FALLING);
+
     DEBUG("Setting up %d configured sensors...", numOfSensors);
-    const SensorConfig *config  = sensorConfigs;
+    const SensorConfig *config = sensorConfigs;
     for (uint8_t i = 0; i < numOfSensors; i++, config++)
     {
         Sensor *sensor = new Sensor(config, process_message);
@@ -97,7 +125,7 @@ void setup()
     DEBUG("Setting up %d configured modbus devices...", numOfModbusSensors);
     modbusConfig.numSlaves = numOfModbusSensors;
     const ModbusConfig *mconfig = &modbusConfig;
-    //const ModbusSlaveConfig *mslaveconfig  = modbusSlaveConfigs;
+    // const ModbusSlaveConfig *mslaveconfig  = modbusSlaveConfigs;
     modbus = new Modbus(mconfig, modbusSlaveConfigs, process_modbus_message);
     DEBUG("Modbus setup done.");
 #endif
@@ -106,7 +134,7 @@ void setup()
 }
 
 void loop()
-{	
+{
     if (webConf->needReset)
     {
         // Doing a chip reset caused by config changes
@@ -115,12 +143,28 @@ void loop()
         ESP.restart();
     }
 
-    bool allSensorsProcessedMessage=true;
+
+    if (uartNewData)
+    {
+        uartNewData = false;
+        uint8_t len, data[64];
+        len = spiuart->readFIFO(SC16IS752_CHANNEL_A, data);
+        DEBUG("Channel A: %d", len);
+        DEBUG("Data:%.*s", len, data);
+
+        len = spiuart->readFIFO(SC16IS752_CHANNEL_B, data);
+        DEBUG("Channel B: %d", len);
+        DEBUG("Data:%.*s", len, data);
+
+    }
+
+
+    bool allSensorsProcessedMessage = true;
     // Execute sensor state machines
     for (uint8_t i = 0; i < numOfSensors; i++)
     {
         sensors[i]->loop();
-        allSensorsProcessedMessage&=sensors[i]->hasProcessedMessage();
+        allSensorsProcessedMessage &= sensors[i]->hasProcessedMessage();
     }
 
 #ifdef MODBUS
@@ -128,10 +172,10 @@ void loop()
 #endif
 
     webConf->doLoop();
-    
-    if(connected && deepSleepInterval > 0 && allSensorsProcessedMessage)
+
+    if (connected && deepSleepInterval > 0 && allSensorsProcessedMessage)
     {
-        if(publisher.isConnected())
+        if (publisher.isConnected())
         {
             DEBUG("Disconnecting MQTT before deep sleep.");
             publisher.disconnect();
@@ -143,20 +187,20 @@ void loop()
         }
     }
     yield();
-    //delay(1);
+    // delay(1);
 }
 
-void status(WebServer* server)
+void status(WebServer *server)
 {
     char buffer[1024], *b = buffer;
-    b+=sprintf(b, "{\n");
-    b+=sprintf(b, "  \"chipId\":\"%08X\",\n", ESP.getChipId());
-    b+=sprintf(b, "  \"uptime64\":%llu,\n", millis64());
-    b+=sprintf(b, "  \"uptime\":%lu,\n", millis());
-    b+=sprintf(b, "  \"lastMessageTime\":%llu,\n", lastMessageTime);
-    b+=sprintf(b, "  \"mqttConnected\":%u,\n", publisher.isConnected());
-    b+=sprintf(b, "  \"version\":\"%s\"\n", VERSION);
-    b+=sprintf(b, "}");
+    b += sprintf(b, "{\n");
+    b += sprintf(b, "  \"chipId\":\"%08X\",\n", ESP.getChipId());
+    b += sprintf(b, "  \"uptime64\":%llu,\n", millis64());
+    b += sprintf(b, "  \"uptime\":%lu,\n", millis());
+    b += sprintf(b, "  \"lastMessageTime\":%llu,\n", lastMessageTime);
+    b += sprintf(b, "  \"mqttConnected\":%u,\n", publisher.isConnected());
+    b += sprintf(b, "  \"version\":\"%s\"\n", VERSION);
+    b += sprintf(b, "}");
     server->send(200, "application/json", buffer);
 }
 

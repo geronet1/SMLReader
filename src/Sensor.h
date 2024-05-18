@@ -1,7 +1,6 @@
 #ifndef SENSOR_H
 #define SENSOR_H
 
-#include <SoftwareSerial.h>
 #include <jled.h>
 #include "debug.h"
 
@@ -54,10 +53,10 @@ public:
         this->config = config;
         DEBUG("Initializing sensor %s...", this->config->name);
         this->callback = callback;
-        this->serial = unique_ptr<SoftwareSerial>(new SoftwareSerial());
-        this->serial->begin(9600, SWSERIAL_8N1, this->config->pin, -1, false);
-        this->serial->enableTx(false);
-        this->serial->enableRx(true);
+        //this->serial = unique_ptr<SoftwareSerial>(new SoftwareSerial());
+        //this->serial->begin(9600, SWSERIAL_8N1, this->config->pin, -1, false);
+        //this->serial->enableTx(false);
+        //this->serial->enableRx(true);
         DEBUG("Initialized sensor %s.", this->config->name);
 
         if (this->config->status_led_pin != NOT_A_PIN)
@@ -92,7 +91,7 @@ public:
     unique_ptr<JLed> status_led;
 
 private:
-    unique_ptr<SoftwareSerial> serial;
+    //unique_ptr<SoftwareSerial> serial;
     byte buffer[BUFFER_SIZE];
     size_t position = 0;
     unsigned long last_state_reset = 0;
@@ -135,14 +134,42 @@ private:
         }
     }
 
+
+    void insert_data(uint8_t *data, uint8_t len)
+    {
+        for (uint8_t i = 0; i < len; i++)
+            this->buffer[i] = data[i];
+    }
+
     // Wrappers for sensor access
     int data_available()
     {
-        return this->serial->available();
+        //return this->serial->available();
+        return 0;
     }
     int data_read()
     {
-        return this->serial->read();
+        static unsigned long last = millis();
+        static bool newline = true;
+
+        if (millis() - last > 100)
+        {
+            if (newline)
+            {
+                Serial.print("\n\n");
+                newline = false;
+            }
+        }
+        else
+        {
+            newline = true;
+        }
+        last = millis();
+
+        int byte = this->serial->read();
+        Serial.print(byte);
+
+        return byte;
     }
 
     // Set state
@@ -211,9 +238,11 @@ private:
         while (this->data_available())
         {
             this->buffer[this->position] = this->data_read();
+
             yield();
 
             this->position = (this->buffer[this->position] == START_SEQUENCE[this->position]) ? (this->position + 1) : 0;
+
             if (this->position == sizeof(START_SEQUENCE))
             {
                 // Start sequence has been found

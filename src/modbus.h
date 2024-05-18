@@ -14,7 +14,7 @@ using namespace std;
 enum modbus_types
 {
     SDM630,
-    SDM_EXAMPLE,
+    SDM120,
 };
 
 const uint8_t NAME_LENGTH = 20;
@@ -33,6 +33,8 @@ typedef volatile struct
     const uint16_t end;
 } register_struct;
 
+
+/* SDM630
 register_struct register_blocks[] = {
     {SDM_PHASE_1_VOLTAGE, SDM_PHASE_3_POWER},                 // 1st block
     {SDM_SUM_LINE_CURRENT, SDM_FREQUENCY},                    // 2nd block
@@ -40,6 +42,7 @@ register_struct register_blocks[] = {
     {SDM_IMPORT_ACTIVE_ENERGY, SDM_EXPORT_ACTIVE_ENERGY},     // 4th block
     {SDM_NEUTRAL_CURRENT, 0},                                 // single value
 };
+
 
 #define NBREG 22 // number of sdm registers to read
 volatile sdm_struct sdmarr[NBREG] = {
@@ -71,6 +74,29 @@ volatile sdm_struct sdmarr[NBREG] = {
     {NAN, SDM_IMPORT_ACTIVE_ENERGY, "energy_import", 3}, // kWh
     {NAN, SDM_EXPORT_ACTIVE_ENERGY, "energy_export", 3}, // kWh
 };
+*/
+
+// SDM120
+register_struct register_blocks[] = {
+    {SDM_PHASE_1_VOLTAGE, 0},                 // 1st block
+    {SDM_PHASE_1_CURRENT, 0},                    // 2nd block
+    {SDM_PHASE_1_POWER, 0}, // 3rd block
+    {SDM_TOTAL_ACTIVE_ENERGY, 0},     // 4th block
+ };
+
+#define NBREG 4 // number of sdm registers to read
+volatile sdm_struct sdmarr[NBREG] = {
+    // float value, register number, mqtt name, precision
+    {NAN, SDM_PHASE_1_VOLTAGE, "voltage_L1", 1}, // V
+    {NAN, SDM_PHASE_1_CURRENT, "current_L1", 3}, // A
+    {NAN, SDM_PHASE_1_POWER, "power_L1", 0},     // W
+
+//    {NAN, SDM_IMPORT_ACTIVE_ENERGY, "energy_import", 3}, // kWh
+//    {NAN, SDM_EXPORT_ACTIVE_ENERGY, "energy_export", 3}, // kWh
+    {NAN, SDM_TOTAL_ACTIVE_ENERGY, "energy_total", 3}, // kWh
+};
+
+
 
 void clear_sdmarr()
 {

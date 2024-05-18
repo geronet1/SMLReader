@@ -106,8 +106,8 @@ const char modeNames[][MODE_LABEL_LENGTH] = {"8N1", "8E1", "8O1", "8N2"};
 
 #define TYPE_LABEL_LENGTH 16
 const uint8_t NUMBER_OF_TYPES = 2;
-const char typeOptions[] = {SDM630 + 'A', '\0', SDM_EXAMPLE + 'A', '\0'};
-const char typeNames[][TYPE_LABEL_LENGTH] = {"SDM630", "example"};
+const char typeOptions[] = {SDM630 + 'A', '\0', SDM120 + 'A', '\0'};
+const char typeNames[][TYPE_LABEL_LENGTH] = {"SDM630", "SDM120"};
 
 #endif
 
@@ -265,9 +265,9 @@ public:
 #endif
     }
 
-    void loadWebconf(MqttConfig &mqttConfig, SensorConfig sensorConfigs[MAX_SENSORS], uint8_t &numOfSensors,
+    void loadWebconf(MqttConfig &mqttConfig, SensorConfig sensorConfigs[MAX_SENSORS], uint8_t *numOfSensors,
 #ifdef MODBUS
-                     ModbusConfig &modbusConfig, ModbusSlaveConfig modbusConfigs[MAX_MODBUS], uint8_t &numOfModbusSensors,
+                     ModbusConfig &modbusConfig, ModbusSlaveConfig modbusConfigs[MAX_MODBUS], uint8_t *numOfModbusSensors,
 #endif
                      uint16_t &deepSleepInterval)
     {
@@ -284,7 +284,7 @@ public:
             strcpy(mqttConfig.topic, defaults.topic);
             strcpy(mqttConfig.jsonPayload, defaults.jsonPayload);
 
-            numOfSensors = 1;
+            *numOfSensors = 0;
             deepSleepInterval = 0;
 
             for (uint8_t i = 0; i < MAX_SENSORS; i++)
@@ -292,7 +292,7 @@ public:
                 this->groups.sensorGroups[i]->visible = false;
             }
 #ifdef MODBUS
-            numOfModbusSensors = 0;
+            *numOfModbusSensors = 0;
             for (uint8_t i = 0; i < MAX_MODBUS; i++)
             {
                 this->groups.modbusGroups[i]->visible = false;
@@ -308,11 +308,11 @@ public:
             strcpy(mqttConfig.topic, this->mqtt.topic);
             strcpy(mqttConfig.username, this->mqtt.username);
 
-            numOfSensors = this->general.numberOfSensors[0] - '0';
-            numOfSensors = numOfSensors < MAX_SENSORS ? numOfSensors : MAX_SENSORS;
-            for (uint8_t i = 0; i < numOfSensors; i++)
+            *numOfSensors = this->general.numberOfSensors[0] - '0';
+            *numOfSensors = *numOfSensors < MAX_SENSORS ? *numOfSensors : MAX_SENSORS;
+            for (uint8_t i = 0; i < *numOfSensors; i++)
             {
-                this->groups.sensorGroups[i]->visible = i < numOfSensors;
+                this->groups.sensorGroups[i]->visible = i < *numOfSensors;
                 sensorConfigs[i].interval = atoi(this->sensors[i].interval);
                 sensorConfigs[i].name = this->sensors[i].name;
                 sensorConfigs[i].numeric_only = this->sensors[i].numeric_only[0] == 's';
@@ -322,8 +322,8 @@ public:
             }
 
 #ifdef MODBUS
-            numOfModbusSensors = this->modbus.numberOfSensors[0] - '0';
-            numOfModbusSensors = numOfModbusSensors < MAX_MODBUS ? numOfModbusSensors : MAX_MODBUS;
+            *numOfModbusSensors = this->modbus.numberOfSensors[0] - '0';
+            *numOfModbusSensors = *numOfModbusSensors < MAX_MODBUS ? *numOfModbusSensors : MAX_MODBUS;
             modbusConfig.baud = atoi(this->modbus.baud);
             switch (this->modbus.mode[0] - 'A')
             {
@@ -348,11 +348,9 @@ public:
             modbusConfig.msDelay = atoi(this->modbus.msDelay);
             modbusConfig.msTimeout = atoi(this->modbus.msTimeout);
 
-            numOfModbusSensors = numOfModbusSensors < MAX_MODBUS ? numOfModbusSensors : MAX_MODBUS;
-
-            for (uint8_t i = 0; i < numOfModbusSensors; i++)
+            for (uint8_t i = 0; i < *numOfModbusSensors; i++)
             {
-                this->groups.modbusGroups[i]->visible = i < numOfModbusSensors;
+                this->groups.modbusGroups[i]->visible = i < *numOfModbusSensors;
                 modbusConfigs[i].name = this->modbus_sensors[i].name;
                 modbusConfigs[i].id = atoi(this->modbus_sensors[i].id);
                 modbusConfigs[i].type = this->modbus_sensors[i].type[0] - 'A';
@@ -366,13 +364,13 @@ public:
 
 #ifdef IOTWEBCONF_STATUS_LED
         // set status led for iotwebconf if not otherwise used
-        for (uint8_t i = 0; i < numOfSensors; i++)
+        for (uint8_t i = 0; i < *numOfSensors; i++)
         {
             if (sensorConfigs[i].status_led_pin == IOTWEBCONF_STATUS_LED)
                 return;
         }
         #ifdef MODBUS
-        for (uint8_t i = 0; i < numOfModbusSensors; i++)
+        for (uint8_t i = 0; i < *numOfModbusSensors; i++)
         {
             if (modbusConfigs[i].status_led_pin == IOTWEBCONF_STATUS_LED)
                 return;

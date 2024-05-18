@@ -10,11 +10,11 @@ const char *VERSION = "3.0.0";
 // Be careful!
 const char *CONFIG_VERSION = "2.0.0";
 
-const char *WIFI_AP_SSID = "SMLReader";
-const char *WIFI_AP_DEFAULT_PASSWORD = "";
+const char *WIFI_AP_SSID = "SSID";
+const char *WIFI_AP_DEFAULT_PASSWORD = "xyz";
 
 // enable Modbus
-#define MODBUS
+//#define MODBUS
 
 #define IOTWEBCONF_STATUS_LED D4
 
