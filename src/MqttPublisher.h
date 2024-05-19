@@ -82,6 +82,12 @@ public:
     publish(baseTopic + "info", message);
   }
 
+  void publish(Sensor *sensor, const char *obisIdentifier, const char *value)
+  {
+    String entryTopic = baseTopic + "sensor/" + (sensor->config->name) + "/obis/" + obisIdentifier + "/";
+    publish(entryTopic + "value", value);
+  }
+
   void publish(Sensor *sensor, sml_file *file)
   {
     if (sensor->config->status_led_pin != NOT_A_PIN)

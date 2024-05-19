@@ -41,14 +41,72 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
 {
     lastMessageTime = millis64();
     // Parse
-    sml_file *file = sml_file_parse(buffer + 8, len - 16);
+    if (sensor->type == ASCII)
+    {
+        char obis[20];
+        char value[20];
+        char delim[3] = {ASCII_CR, ASCII_LF};
 
-    DEBUG_SML_FILE(file);
+        buffer[len-3] = '\0'; // Change the '!' to null-terminator
+        char *token = strtok((char*)buffer, delim);
 
-    publisher.publish(sensor, file);
+        publisher.publish(sensor, "ID", token + 1); // jump over '/'
+        token = strtok(NULL, delim);
 
-    // free the malloc'd memory
-    sml_file_free(file);
+        while (token)
+        {
+            uint8_t i, j = 0;
+            char cf = '(';
+            for (i = 0; i < strlen(token); i++)
+            {
+                if (token[i] == cf)
+                    break;
+                obis[i] = token[i];
+                obis[i+1] = '\0';
+            }
+
+            i++;    // jump over '('
+            for (; i < strlen(token); i++)
+            {
+                value[j++] = token[i];
+                value[j] = '\0';
+            }
+            value[strlen(value) - 1] = '\0';    // delete ')'
+
+            for (i = 0; i < strlen(obis); i++)
+            {
+                if (obis[i] == '*')
+                {
+                    obis[i] = '/'; // change '*' to '/'
+                    break;
+                }
+            }
+
+            for (i = 0; i < strlen(value); i++)
+            {
+                if (value[i] == '*')
+                {
+                    value[i] = '\0'; // change '*' to '\0'
+                    break;
+                }
+            }
+
+            if (strlen(obis) >= 13 && strlen(value) >= 2)
+                publisher.publish(sensor, obis, value);
+
+            token = strtok(NULL, delim);
+        }
+
+    }
+    else
+    {
+        sml_file *file = sml_file_parse(buffer + 8, len - 16);
+        DEBUG_SML_FILE(file);
+        publisher.publish(sensor, file);
+
+        // free the malloc'd memory
+        sml_file_free(file);
+    }
 }
 
 #ifdef MODBUS

@@ -13,6 +13,12 @@ const byte END_SEQUENCE[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x1A};
 const size_t BUFFER_SIZE = 3840; // Max datagram duration 400ms at 9600 Baud
 const uint8_t READ_TIMEOUT = 30;
 
+const byte ASCII_SEQUENCE[] = {0xDA, 0x31, 0x2D, 0x30, 0x3A, 0x30, 0x2E, 0x30, 0x2E, 0x30, 0x2A, 0x32, 0x35, 0x35, 0x28}; //  "\n1-0:0.0.0*255("
+const byte ASCII_START = 0x2F;
+const byte ASCII_END[] = {0x21, 0xDA};
+const byte ASCII_LF = 0x0A;
+const byte ASCII_CR = 0x0D;
+
 // States
 enum State
 {
@@ -22,6 +28,12 @@ enum State
     READ_MESSAGE,
     PROCESS_MESSAGE,
     READ_CHECKSUM
+};
+
+enum Type
+{
+    SML,
+    ASCII
 };
 
 uint64_t millis64()
@@ -90,6 +102,7 @@ public:
     }
 
     unique_ptr<JLed> status_led;
+    Type type = SML;
 
 private:
     unique_ptr<SoftwareSerial> serial;
@@ -213,6 +226,30 @@ private:
             this->buffer[this->position] = this->data_read();
             yield();
 
+            if (this->type == ASCII)
+            {
+                if (this->buffer[this->position] == ASCII_START)
+                {
+                    // Start sequence has been found
+                    DEBUG("Start sequence found.");
+                    if (this->config->status_led_pin != NOT_A_PIN)
+                    {
+                        this->status_led->Blink(50, 50).Update();
+                    }
+                    this->set_state(READ_MESSAGE);
+                }
+                return;
+            }
+
+            this->position = (this->buffer[this->position] == ASCII_SEQUENCE[this->position]) ? (this->position + 1) : 0;
+            if (this->position == sizeof(ASCII_SEQUENCE))
+            {
+                // D0 ASCII output found
+                this->type = ASCII;
+                DEBUG("ASCII mode");
+                return;
+            }
+
             this->position = (this->buffer[this->position] == START_SEQUENCE[this->position]) ? (this->position + 1) : 0;
             if (this->position == sizeof(START_SEQUENCE))
             {
@@ -243,19 +280,40 @@ private:
             this->buffer[this->position++] = this->data_read();
             yield();
 
-            // Check for end sequence
-            int last_index_of_end_seq = sizeof(END_SEQUENCE) - 1;
-            for (int i = 0; i <= last_index_of_end_seq; i++)
+            if (this->type == ASCII)
             {
-                if (END_SEQUENCE[last_index_of_end_seq - i] != this->buffer[this->position - (i + 1)])
+                // Check for end sequence
+                int last_index_of_end_seq = sizeof(ASCII_END) - 1;
+                for (int i = 0; i <= last_index_of_end_seq; i++)
                 {
-                    break;
+                    if (ASCII_END[last_index_of_end_seq - i] != this->buffer[this->position - (i + 1)])
+                    {
+                        break;
+                    }
+                    if (i == last_index_of_end_seq)
+                    {
+                        DEBUG("End sequence found.");
+                        this->set_state(READ_CHECKSUM);
+                        return;
+                    }
                 }
-                if (i == last_index_of_end_seq)
+            }
+            else
+            {
+                // Check for end sequence
+                int last_index_of_end_seq = sizeof(END_SEQUENCE) - 1;
+                for (int i = 0; i <= last_index_of_end_seq; i++)
                 {
-                    DEBUG("End sequence found.");
-                    this->set_state(READ_CHECKSUM);
-                    return;
+                    if (END_SEQUENCE[last_index_of_end_seq - i] != this->buffer[this->position - (i + 1)])
+                    {
+                        break;
+                    }
+                    if (i == last_index_of_end_seq)
+                    {
+                        DEBUG("End sequence found.");
+                        this->set_state(READ_CHECKSUM);
+                        return;
+                    }
                 }
             }
         }
@@ -264,6 +322,14 @@ private:
     // Read the number of fillbytes and the checksum
     void read_checksum()
     {
+        if (this->type == ASCII)
+        {
+            DEBUG("Message has been read.");
+            DEBUG_DUMP_BUFFER(this->buffer, this->position);
+            this->set_state(PROCESS_MESSAGE);
+            return;
+        }
+        
         while (this->bytes_until_checksum > 0 && this->data_available())
         {
             this->buffer[this->position++] = this->data_read();
