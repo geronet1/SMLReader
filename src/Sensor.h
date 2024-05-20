@@ -15,7 +15,7 @@ const uint8_t READ_TIMEOUT = 30;
 
 const byte ASCII_SEQUENCE[] = {0xDA, 0x31, 0x2D, 0x30, 0x3A, 0x30, 0x2E, 0x30, 0x2E, 0x30, 0x2A, 0x32, 0x35, 0x35, 0x28}; //  "\n1-0:0.0.0*255("
 const byte ASCII_START = 0x2F;
-const byte ASCII_END[] = {0x21, 0xDA};
+const byte ASCII_END[] = {0x0D, 0x0A, 0x21, 0x0D, 0x0A};
 const byte ASCII_LF = 0x0A;
 const byte ASCII_CR = 0x0D;
 
@@ -50,6 +50,8 @@ class SensorConfig
 {
 public:
     uint8_t pin;
+    SoftwareSerialConfig mode;
+    Type type = SML;
     char* name;
     bool numeric_only;
     bool status_led_inverted;
@@ -67,7 +69,7 @@ public:
         DEBUG("Initializing sensor %s...", this->config->name);
         this->callback = callback;
         this->serial = unique_ptr<SoftwareSerial>(new SoftwareSerial());
-        this->serial->begin(9600, SWSERIAL_8N1, this->config->pin, -1, false);
+        this->serial->begin(9600, this->config->mode, this->config->pin, -1, false);
         this->serial->enableTx(false);
         this->serial->enableRx(true);
         DEBUG("Initialized sensor %s.", this->config->name);
@@ -102,7 +104,6 @@ public:
     }
 
     unique_ptr<JLed> status_led;
-    Type type = SML;
 
 private:
     unique_ptr<SoftwareSerial> serial;
@@ -226,7 +227,7 @@ private:
             this->buffer[this->position] = this->data_read();
             yield();
 
-            if (this->type == ASCII)
+            if (this->config->type == ASCII)
             {
                 if (this->buffer[this->position] == ASCII_START)
                 {
@@ -238,15 +239,6 @@ private:
                     }
                     this->set_state(READ_MESSAGE);
                 }
-                return;
-            }
-
-            this->position = (this->buffer[this->position] == ASCII_SEQUENCE[this->position]) ? (this->position + 1) : 0;
-            if (this->position == sizeof(ASCII_SEQUENCE))
-            {
-                // D0 ASCII output found
-                this->type = ASCII;
-                DEBUG("ASCII mode");
                 return;
             }
 
@@ -280,7 +272,7 @@ private:
             this->buffer[this->position++] = this->data_read();
             yield();
 
-            if (this->type == ASCII)
+            if (this->config->type == ASCII)
             {
                 // Check for end sequence
                 int last_index_of_end_seq = sizeof(ASCII_END) - 1;
@@ -322,7 +314,7 @@ private:
     // Read the number of fillbytes and the checksum
     void read_checksum()
     {
-        if (this->type == ASCII)
+        if (this->config->type == ASCII)
         {
             DEBUG("Message has been read.");
             DEBUG_DUMP_BUFFER(this->buffer, this->position);

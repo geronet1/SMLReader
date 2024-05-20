@@ -33,7 +33,9 @@ struct ModbusWebConfig
 struct SensorWebConfig
 {
     char pin[2] = {D1 + 'A', '\0'};
-    char name[32] = "sensor0";
+    char mode[2] = {0 + 'A', '\0'};
+    char name[32] = "sensor";
+    char type[2] = {0 + 'A', '\0'};
     char numeric_only[9] = "selected";
     char status_led_inverted[9] = "selected";
     char status_led_pin[2] = {D0 + 'A', '\0'};
@@ -43,7 +45,7 @@ struct SensorWebConfig
 #ifdef MODBUS
 struct ModbusSensorWebConfig
 {
-    char name[32] = "modbus0";
+    char name[32] = "modbus";
     char id[4] = "0";
     char type[2] = {SDM630 + 'A', '\0'};
     char status_led_pin[2] = {D6 + 'A', '\0'};
@@ -68,6 +70,8 @@ struct SensorStrings
     char grpid[8] = "sensor0";
     char grpname[9] = "Sensor 0";
     char pin[6] = "s0pin";
+    char mode[7] = "s0mode";
+    char type[7] = "s0type";
     char name[7] = "s0name";
     char numOnly[10] = "s0numOnly";
     char ledInverted[10] = "s0ledI";
@@ -80,6 +84,16 @@ const uint8_t NUMBER_OF_PINS = 10;
 const char pinOptions[] = {NOT_A_PIN + 'A', '\0', D0 + 'A', '\0', D1 + 'A', '\0', D2 + 'A', '\0', D3 + 'A', '\0', D4 + 'A', '\0', D5 + 'A', '\0', D6 + 'A', '\0', D7 + 'A', '\0', D8 + 'A', '\0'};
 const uint8_t PIN_LABEL_LENGTH = 3;
 const char *pinNames[] = {"--", "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"};
+
+#define MODE_LABEL_LENGTH 4
+const uint8_t NUMBER_OF_MODES = 7;
+const char modeOptions[] = {0 + 'A', '\0', 1 + 'A', '\0', 2 + 'A', '\0', 3 + 'A', '\0', 4 + 'A', '\0', 5 + 'A', '\0', 6 + 'A', '\0'};
+const char modeNames[][MODE_LABEL_LENGTH] = {"8N1", "8E1", "8O1", "8N2", "7N2", "7E1", "7O1"};
+
+#define SENSOR_TYPE_LABEL_LENGTH 6
+const uint8_t NUMBER_OF_SENSOR_TYPES = 2;
+const char SensorTypeOptions[] = {0 + 'A', '\0', 1 + 'A', '\0'};
+const char SensorTypeNames[][SENSOR_TYPE_LABEL_LENGTH] = {"SML", "ASCII"};
 
 #ifdef MODBUS
 struct ModbusStrings
@@ -98,11 +112,6 @@ ModbusStrings modbusStrings[MAX_MODBUS];
 
 #define BAUD_LABEL_LENGTH 10
 const char baudOptions[][BAUD_LABEL_LENGTH] = {"2400", "4800", "9600", "19200", "38400"};
-
-#define MODE_LABEL_LENGTH 4
-const uint8_t NUMBER_OF_MODES = 4;
-const char modeOptions[] = {0 + 'A', '\0', 1 + 'A', '\0', 2 + 'A', '\0', 3 + 'A', '\0'};
-const char modeNames[][MODE_LABEL_LENGTH] = {"8N1", "8E1", "8O1", "8N2"};
 
 #define TYPE_LABEL_LENGTH 16
 const uint8_t NUMBER_OF_TYPES = 2;
@@ -219,6 +228,8 @@ public:
             strs.grpid[6] = sensorIdChar;
             strs.grpname[7] = sensorIdChar;
             strs.pin[1] = sensorIdChar;
+            strs.mode[1] = sensorIdChar;
+            strs.type[1] = sensorIdChar;
             strs.name[1] = sensorIdChar;
             strs.numOnly[1] = sensorIdChar;
             strs.ledInverted[1] = sensorIdChar;
@@ -229,6 +240,8 @@ public:
             ParameterGroup *&sensorGroup = this->groups.sensorGroups[i] = new ParameterGroup(strs.grpid, strs.grpname);
             sensorGroup->visible = false;
             sensorGroup->addItem(new SelectParameter("Pin", strs.pin, cfg.pin, sizeof(cfg.pin), pinOptions, *pinNames, NUMBER_OF_PINS, PIN_LABEL_LENGTH, cfg.pin));
+            sensorGroup->addItem(new SelectParameter("Mode", strs.mode, cfg.mode, sizeof(cfg.mode), modeOptions, *modeNames, NUMBER_OF_MODES, MODE_LABEL_LENGTH, cfg.mode));
+            sensorGroup->addItem(new SelectParameter("Type", strs.type, cfg.type, sizeof(cfg.type), SensorTypeOptions, *SensorTypeNames, NUMBER_OF_SENSOR_TYPES, SENSOR_TYPE_LABEL_LENGTH, cfg.type));
             sensorGroup->addItem(new TextParameter("Name", strs.name, cfg.name, sizeof(cfg.name), cfg.name));
             sensorGroup->addItem(new CheckboxParameter("Numeric Values Only", strs.numOnly, cfg.numeric_only, sizeof(cfg.numeric_only), cfg.numeric_only));
             sensorGroup->addItem(new SelectParameter("Led Pin", strs.ledPin, cfg.status_led_pin, sizeof(cfg.status_led_pin), pinOptions, *pinNames, NUMBER_OF_PINS, PIN_LABEL_LENGTH, cfg.status_led_pin));
@@ -284,7 +297,7 @@ public:
             strcpy(mqttConfig.topic, defaults.topic);
             strcpy(mqttConfig.jsonPayload, defaults.jsonPayload);
 
-            numOfSensors = 1;
+            numOfSensors = 0;
             deepSleepInterval = 0;
 
             for (uint8_t i = 0; i < MAX_SENSORS; i++)
@@ -317,6 +330,41 @@ public:
                 sensorConfigs[i].name = this->sensors[i].name;
                 sensorConfigs[i].numeric_only = this->sensors[i].numeric_only[0] == 's';
                 sensorConfigs[i].pin = this->sensors[i].pin[0] - 'A';
+
+                switch (this->sensors[i].mode[0] - 'A')
+                {
+                case 0:
+                    sensorConfigs[i].mode = SWSERIAL_8N1;
+                    break;
+                case 1:
+                    sensorConfigs[i].mode = SWSERIAL_8E1;
+                    break;
+                case 2:
+                    sensorConfigs[i].mode = SWSERIAL_8O1;
+                    break;
+                case 3:
+                    sensorConfigs[i].mode = SWSERIAL_8N2;
+                    break;
+                case 4:
+                    sensorConfigs[i].mode = SWSERIAL_7N2;
+                    break;
+                case 5:
+                    sensorConfigs[i].mode = SWSERIAL_7E1;
+                    break;
+                case 6:
+                    sensorConfigs[i].mode = SWSERIAL_7O1;
+                }
+
+                switch (this->sensors[i].type[0] - 'A')
+                {
+                case 0:
+                    sensorConfigs[i].type = SML;
+                    break;
+                case 1:
+                    sensorConfigs[i].type = ASCII;
+                }
+
+
                 sensorConfigs[i].status_led_inverted = this->sensors[i].status_led_inverted[0] == 's';
                 sensorConfigs[i].status_led_pin = this->sensors[i].status_led_pin[0] - 'A';
             }
@@ -338,6 +386,15 @@ public:
                 break;
             case 3:
                 modbusConfig.mode = SERIAL_8N2;
+                break;
+            case 4:
+                modbusConfig.mode = SERIAL_7N2;
+                break;
+            case 5:
+                modbusConfig.mode = SERIAL_7E1;
+                break;
+            case 6:
+                modbusConfig.mode = SERIAL_7O1;
             }
 
             modbusConfig.direction_pin = this->modbus.direction_pin[0] - 'A';

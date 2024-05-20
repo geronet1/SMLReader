@@ -8,7 +8,7 @@ const char *VERSION = "3.0.0";
 
 // Modifying the config version will probably cause a loss of the existig configuration.
 // Be careful!
-const char *CONFIG_VERSION = "2.0.0";
+const char *CONFIG_VERSION = "2.1.0";
 
 const char *WIFI_AP_SSID = "SMLReader";
 const char *WIFI_AP_DEFAULT_PASSWORD = "";

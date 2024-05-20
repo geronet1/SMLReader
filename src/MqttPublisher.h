@@ -284,9 +284,7 @@ private:
       else
       {
         DEBUG(F("%s"), payload);
-//        digitalWrite(D6, LOW);
         client.publish(topic, qos, retain, payload, strlen(payload));
-//        digitalWrite(D6, HIGH);
       }
     }
   }

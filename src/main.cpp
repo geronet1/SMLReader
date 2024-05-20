@@ -41,7 +41,7 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
 {
     lastMessageTime = millis64();
     // Parse
-    if (sensor->type == ASCII)
+    if (sensor->config->type == ASCII)
     {
         char obis[20];
         char value[20];
