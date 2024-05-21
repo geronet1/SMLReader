@@ -55,6 +55,8 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
 
         while (token)
         {
+            yield();
+            
             uint8_t i, j = 0;
             char cf = '(';
             for (i = 0; i < strlen(token); i++)
