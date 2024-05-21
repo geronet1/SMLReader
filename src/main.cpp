@@ -43,8 +43,8 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
     // Parse
     if (sensor->config->type == ASCII)
     {
-        char obis[20];
-        char value[20];
+        char obis[50];
+        char value[50];
         char delim[3] = {ASCII_CR, ASCII_LF};
 
         buffer[len-3] = '\0'; // Change the '!' to null-terminator
@@ -61,6 +61,7 @@ void process_message(byte *buffer, size_t len, Sensor *sensor)
             {
                 if (token[i] == cf)
                     break;
+                                 
                 obis[i] = token[i];
                 obis[i+1] = '\0';
             }
