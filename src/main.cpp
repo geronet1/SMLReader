@@ -37,7 +37,7 @@ uint64_t lastMessageTime = 0;
 
 bool connected = false;
 
-void process_message(byte *buffer, size_t len, Sensor *sensor)
+void process_message(uint8_t *buffer, size_t len, Sensor *sensor)
 {
     lastMessageTime = millis64();
     // Parse

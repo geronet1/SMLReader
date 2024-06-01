@@ -221,7 +221,7 @@ public:
         iotWebConf->addParameterGroup(modbusGroup);
 #endif
 
-        for (byte i = 0; i < MAX_SENSORS; i++)
+        for (uint8_t i = 0; i < MAX_SENSORS; i++)
         {
             char sensorIdChar = i + '0';
             SensorStrings &strs = sensorStrings[i];
@@ -251,7 +251,7 @@ public:
         }
 
 #ifdef MODBUS
-        for (byte i = 0; i < MAX_MODBUS; i++)
+        for (uint8_t i = 0; i < MAX_MODBUS; i++)
         {
             char modbusIdChar = i + '0';
             ModbusStrings &mbstrs = modbusStrings[i];
