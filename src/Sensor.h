@@ -2,14 +2,14 @@
 #define SENSOR_H
 
 #include <jled.h>
-#include "debug.h"
+#include "sml_debug.h"
 
 using namespace std;
 
 // SML constants
-const byte START_SEQUENCE[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x01, 0x01, 0x01, 0x01};
-const byte END_SEQUENCE[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x1A};
-const size_t BUFFER_SIZE = 3840; // Max datagram duration 400ms at 9600 Baud
+const uint8_t START_SEQUENCE[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x01, 0x01, 0x01, 0x01};
+const uint8_t END_SEQUENCE[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x1A};
+const size_t BUFFER_SIZE = 1000; // Max bytes per second at 9600 Baud
 const uint8_t READ_TIMEOUT = 30;
 
 // States
@@ -17,10 +17,10 @@ enum State
 {
     INIT,
     STANDBY,
-    WAIT_FOR_START_SEQUENCE,
+    IDLE,
+    WAIT_FOR_MESSAGE,
     READ_MESSAGE,
     PROCESS_MESSAGE,
-    READ_CHECKSUM
 };
 
 uint64_t millis64()
@@ -48,7 +48,7 @@ class Sensor
 {
 public:
     const SensorConfig *config;
-    Sensor(const SensorConfig *config, void (*callback)(byte *buffer, size_t len, Sensor *sensor))
+    Sensor(const SensorConfig *config, void (*callback)(uint8_t *buffer, size_t len, Sensor *sensor))
     {
         this->config = config;
         DEBUG("Initializing sensor %s...", this->config->name);
@@ -88,36 +88,58 @@ public:
         }
     }
 
+    void new_data(uint8_t *data, uint8_t len)
+    {
+        if (this->state == IDLE)
+            this->set_state(WAIT_FOR_MESSAGE);
+
+        if (this->state != WAIT_FOR_MESSAGE)
+            return;
+
+        if ((this->position + len) >= BUFFER_SIZE)
+        {
+            this->reset_state("Buffer will overflow, starting over.");
+            return;
+        }        
+        for (uint8_t i = 0; i < len; i++)
+            this->buffer[this->position++] = data[i];
+    }
+
+    void finish_data()
+    {
+        if (this->state != WAIT_FOR_MESSAGE)
+            return;
+
+        DEBUG("finish: %d", this->position);
+        this->set_state(READ_MESSAGE);
+    }
+
     unique_ptr<JLed> status_led;
 
 private:
-    //unique_ptr<SoftwareSerial> serial;
-    byte buffer[BUFFER_SIZE];
+    uint8_t buffer[BUFFER_SIZE];
     size_t position = 0;
-    unsigned long last_state_reset = 0;
     uint64_t standby_until = 0;
     uint8_t bytes_until_checksum = 0;
     uint8_t loop_counter = 0;
     State state = INIT;
-    void (*callback)(byte *buffer, size_t len, Sensor *sensor) = NULL;
+    void (*callback)(uint8_t *buffer, size_t len, Sensor *sensor) = NULL;
     bool processedMessage;
 
     void run_current_state()
     {
         if (this->state != INIT)
         {
-            if (this->state != STANDBY && ((millis() - this->last_state_reset) > (READ_TIMEOUT * 1000)))
-            {
-                DEBUG("Did not receive an SML message within %d seconds, starting over.", READ_TIMEOUT);
-                this->reset_state();
-            }
             switch (this->state)
             {
             case STANDBY:
                 this->standby();
                 break;
-            case WAIT_FOR_START_SEQUENCE:
-                this->wait_for_start_sequence();
+            case IDLE:
+                this->idle();
+                break;
+            case WAIT_FOR_MESSAGE:
+                this->wait_for_message();
                 break;
             case READ_MESSAGE:
                 this->read_message();
@@ -125,51 +147,10 @@ private:
             case PROCESS_MESSAGE:
                 this->process_message();
                 break;
-            case READ_CHECKSUM:
-                this->read_checksum();
-                break;
             default:
                 break;
             }
         }
-    }
-
-
-    void insert_data(uint8_t *data, uint8_t len)
-    {
-        for (uint8_t i = 0; i < len; i++)
-            this->buffer[i] = data[i];
-    }
-
-    // Wrappers for sensor access
-    int data_available()
-    {
-        //return this->serial->available();
-        return 0;
-    }
-    int data_read()
-    {
-        static unsigned long last = millis();
-        static bool newline = true;
-
-        if (millis() - last > 100)
-        {
-            if (newline)
-            {
-                Serial.print("\n\n");
-                newline = false;
-            }
-        }
-        else
-        {
-            newline = true;
-        }
-        last = millis();
-
-        int byte = this->serial->read();
-        Serial.print(byte);
-
-        return byte;
     }
 
     // Set state
@@ -179,20 +160,17 @@ private:
         {
             DEBUG("State of sensor %s is 'STANDBY'.", this->config->name);
         }
-        else if (new_state == WAIT_FOR_START_SEQUENCE)
+        if (new_state == IDLE)
         {
-            DEBUG("State of sensor %s is 'WAIT_FOR_START_SEQUENCE'.", this->config->name);
-            this->last_state_reset = millis();
-            this->position = 0;
+            DEBUG("State of sensor %s is 'IDLE'.", this->config->name);
+        }
+        else if (new_state == WAIT_FOR_MESSAGE)
+        {
+            DEBUG("State of sensor %s is 'WAIT_FOR_MESSAGE'.", this->config->name);
         }
         else if (new_state == READ_MESSAGE)
         {
             DEBUG("State of sensor %s is 'READ_MESSAGE'.", this->config->name);
-        }
-        else if (new_state == READ_CHECKSUM)
-        {
-            DEBUG("State of sensor %s is 'READ_CHECKSUM'.", this->config->name);
-            this->bytes_until_checksum = 3;
         }
         else if (new_state == PROCESS_MESSAGE)
         {
@@ -204,7 +182,8 @@ private:
     // Initialize state machine
     void init_state()
     {
-        this->set_state(WAIT_FOR_START_SEQUENCE);
+        this->set_state(IDLE);
+        this->position = 0;
     }
 
     // Start over and wait for the start sequence
@@ -219,93 +198,63 @@ private:
 
     void standby()
     {
-        // Keep buffers clean
-        while (this->data_available())
-        {
-            this->data_read();
-            yield();
-        }
-
         if (millis64() >= this->standby_until)
         {
             this->reset_state();
         }
     }
 
-    // Wait for the start_sequence to appear
-    void wait_for_start_sequence()
+    void idle()
     {
-        while (this->data_available())
-        {
-            this->buffer[this->position] = this->data_read();
-
-            yield();
-
-            this->position = (this->buffer[this->position] == START_SEQUENCE[this->position]) ? (this->position + 1) : 0;
-
-            if (this->position == sizeof(START_SEQUENCE))
-            {
-                // Start sequence has been found
-                DEBUG("Start sequence found.");
-                if (this->config->status_led_pin != NOT_A_PIN)
-                {
-                    this->status_led->Blink(50, 50).Update();
-                }
-                this->set_state(READ_MESSAGE);
-                return;
-            }
-        }
+        ; // do nothing
     }
 
-    // Read the rest of the message
+    void wait_for_message()
+    {
+        ; // do nothing
+    }
+
     void read_message()
     {
-        while (this->data_available())
+        // check length of message
+        if (this->position < sizeof(START_SEQUENCE) + sizeof(END_SEQUENCE))
         {
-            // Check whether the buffer is still big enough to hold the number of fill bytes (1 byte) and the checksum (2 bytes)
-            if ((this->position + 3) == BUFFER_SIZE)
-            {
-                this->reset_state("Buffer will overflow, starting over.");
+            this->reset_state("Buffer not long enough");
+            return;
+        }
 
+        for (uint16_t i = 0; i < sizeof(START_SEQUENCE); i++)
+        {
+            if (this->buffer[i] != START_SEQUENCE[i])
+            {
+                this->reset_state("Start sequence error");
                 return;
             }
-            this->buffer[this->position++] = this->data_read();
-            yield();
+        }
 
-            // Check for end sequence
-            int last_index_of_end_seq = sizeof(END_SEQUENCE) - 1;
-            for (int i = 0; i <= last_index_of_end_seq; i++)
+        DEBUG("Start sequence found.");
+        if (this->config->status_led_pin != NOT_A_PIN)
+        {
+            this->status_led->Blink(50, 50).Update();
+        }
+
+
+        // Check for end sequence
+        int start_of_end_sequence = this->position - 8;
+        for (uint16_t i = 0; i < sizeof(END_SEQUENCE); i++)
+        {
+            if (this->buffer[i + start_of_end_sequence] != END_SEQUENCE[i])
             {
-                if (END_SEQUENCE[last_index_of_end_seq - i] != this->buffer[this->position - (i + 1)])
-                {
-                    break;
-                }
-                if (i == last_index_of_end_seq)
-                {
-                    DEBUG("End sequence found.");
-                    this->set_state(READ_CHECKSUM);
-                    return;
-                }
+                this->reset_state("End sequence error");
+                return;
             }
         }
-    }
 
-    // Read the number of fillbytes and the checksum
-    void read_checksum()
-    {
-        while (this->bytes_until_checksum > 0 && this->data_available())
-        {
-            this->buffer[this->position++] = this->data_read();
-            this->bytes_until_checksum--;
-            yield();
-        }
+        DEBUG("End sequence found.");
+    
 
-        if (this->bytes_until_checksum == 0)
-        {
-            DEBUG("Message has been read.");
-            DEBUG_DUMP_BUFFER(this->buffer, this->position);
-            this->set_state(PROCESS_MESSAGE);
-        }
+        DEBUG_DUMP_BUFFER(this->buffer, this->position);
+        this->set_state(PROCESS_MESSAGE);
     }
 
     void process_message()

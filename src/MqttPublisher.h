@@ -13,6 +13,13 @@
 #include "modbus.h"
 #endif
 
+//#define MQTT_DEBUG_PUBLISH
+#ifdef MQTT_DEBUG_PUBLISH
+  #define DEBUGP DEBUG
+#else
+  #define DEBUGP
+#endif
+
 #define MQTT_RECONNECT_DELAY 5
 #define MQTT_LWT_TOPIC "LWT"
 #define MQTT_LWT_RETAIN true
@@ -267,20 +274,19 @@ private:
   {
     if (this->connected)
     {
-      DEBUG(F("MQTT: Publishing to %s:"), topic);
+      DEBUGP(F("MQTT: Publishing to %s:"), topic);
       if (config.jsonPayload[0] == 's')
       {
         const char *buf = new_json_wrap(topic, payload);
-        DEBUG(F("%s\n"), buf);
+        DEBUGP(F("%s\n"), buf);
         client.publish(topic, qos, retain, buf, strlen(buf));
         delete buf;
       }
       else
       {
-        DEBUG(F("%s"), payload);
-//        digitalWrite(D6, LOW);
+        DEBUGP(F("%s"), payload);
         client.publish(topic, qos, retain, payload, strlen(payload));
-//        digitalWrite(D6, HIGH);
+
       }
     }
   }

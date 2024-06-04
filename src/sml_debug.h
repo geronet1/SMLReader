@@ -1,5 +1,5 @@
-#ifndef DEBUG_H
-#define DEBUG_H
+#ifndef SML_DEBUG_H
+#define SML_DEBUG_H
 
 #include "FormattingSerialDebug.h"
 #include <sml/sml_file.h>
@@ -14,7 +14,7 @@
 #endif
 */
 
-void DEBUG_DUMP_BUFFER(byte *buf, int size)
+void DEBUG_DUMP_BUFFER(uint8_t *buf, int size)
 {
 #if (defined(SERIAL_DEBUG_VERBOSE) && SERIAL_DEBUG_VERBOSE)
     DEBUG("----DATA----");
@@ -104,4 +104,4 @@ void DEBUG_SML_FILE(sml_file *file)
 #endif
 }
 
-#endif
+#endif // SML_DEBUG_H

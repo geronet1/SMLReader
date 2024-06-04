@@ -1,3 +1,6 @@
+#ifndef UNIT_H
+#define UNIT_H
+
 /**
  * DLMS Units as specified in ISO EN 62056-62 and used by SML
  *
@@ -113,3 +116,5 @@ const char * dlms_get_unit(unsigned char code) {
 	
 	return NULL; // not found
 }
+
+#endif

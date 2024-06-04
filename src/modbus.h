@@ -1,13 +1,12 @@
 #ifndef MODBUS_H
 #define MODBUS_H
 
-#ifndef USE_HARDWARESERIAL
+/*ifndef USE_HARDWARESERIAL
 #include <SoftwareSerial.h>
-#endif
+#endif*/
 #include <SDM.h>
 
 #include <jled.h>
-#include "debug.h"
 
 using namespace std;
 

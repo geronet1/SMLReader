@@ -2,7 +2,6 @@
 SC16IS752 driver for Arduino
 */
 
-
 #ifndef _SC16IS752_H_
 #define _SC16IS752_H_
 
@@ -78,13 +77,28 @@ SC16IS752 driver for Arduino
 #define   SC16IS750_INT_THR    (0X02)
 #define   SC16IS750_INT_RHR    (0X01)
 
+//Line Status Register
+#define   SC16IS750_LSR_FIFO_ERROR    (0x80)
+#define   SC16IS750_LSR_THR_TSR_EMPTY (0x40)
+#define   SC16IS750_LSR_THR_EMPTY     (0x20)
+#define   SC16IS750_LSR_BREAK         (0x10)
+#define   SC16IS750_LSR_FRAMING_ERROR (0x08)
+#define   SC16IS750_LSR_PARITY_ERROR  (0x04)
+#define   SC16IS750_LSR_OVERRUN_ERROR (0x02)
+#define   SC16IS750_LSR_DATA_IN_FIFO  (0x01)
+
 //FCR FIFO trigger levels
-#define SC16IS750_FIFO_RX       (0x00)
-#define SC16IS750_FIFO_TX       (0x01)
-#define SC16IS750_FIFO_LEVEL_8  (0x00)
-#define SC16IS750_FIFO_LEVEL_16 (0x01)
-#define SC16IS750_FIFO_LEVEL_56 (0x02)
-#define SC16IS750_FIFO_LEVEL_60 (0x03)
+#define FIFO_RX_TRIGGER_8   (0<<6)
+#define FIFO_RX_TRIGGER_16	(_BV(0)<<6)
+#define FIFO_RX_TRIGGER_56	(_BV(1)<<6)
+#define FIFO_RX_TRIGGER_60	((_BV(0) | _BV(0))<<6)
+#define FIFO_TX_TRIGGER_8   (0<<4)
+#define FIFO_TX_TRIGGER_16	(_BV(0)<<4)
+#define FIFO_TX_TRIGGER_56	(_BV(1)<<4)
+#define FIFO_TX_TRIGGER_60	((_BV(0) | _BV(0))<<4)
+#define FIFO_TX_RESET	_BV(2)
+#define FIFO_RX_RESET	_BV(1)
+#define FIFO_ENABLE		_BV(0)
 
 //Interrupt Identification Register
 enum SC16IS750_IIR {
@@ -128,6 +142,7 @@ class SC16IS752
     SC16IS752(uint8_t prtcl = SC16IS750_PROTOCOL_I2C, uint8_t addr = SC16IS750_ADDRESS_AD);
     int     begin(uint32_t baud_A, uint32_t baud_B);
     int     readFIFO(uint8_t channel, uint8_t *data);
+    void    ResetFifo(uint8_t channel, uint8_t fifo);
     int     read(uint8_t channel);
     size_t  write(uint8_t channel, uint8_t val);
     int     available(uint8_t channel);
@@ -150,16 +165,15 @@ class SC16IS752
     void    ModemPin(uint8_t gpio); //gpio == 0, gpio[7:4] are modem pins, gpio == 1 gpio[7:4] are gpios
     void    GPIOLatch(uint8_t latch);
     void    EnableRs485(uint8_t channel, uint8_t invert);
-    void    EnableTransmit(uint8_t channel, uint8_t tx_enable);
 
-  
+    uint8_t  ReadRegister(uint8_t channel, uint8_t reg_addr);
+    void     WriteRegister(uint8_t channel, uint8_t reg_addr, uint8_t val);
+
   private:
     uint8_t  device_address_sspin;
     uint8_t  protocol;
     uint32_t timeout;
     int16_t  SetBaudrate(uint8_t channel, uint32_t baudrate);
-    uint8_t  ReadRegister(uint8_t channel, uint8_t reg_addr);
-    void     WriteRegister(uint8_t channel, uint8_t reg_addr, uint8_t val);
     void     SetLine(uint8_t channel, uint8_t data_length, uint8_t parity_select, uint8_t stop_length );
     void     GPIOSetPinMode(uint8_t pin_number, uint8_t i_o);
     void     GPIOSetPinState(uint8_t pin_number, uint8_t pin_state);
@@ -168,19 +182,18 @@ class SC16IS752
     void     GPIOSetPortMode(uint8_t port_io);
     void     GPIOSetPortState(uint8_t port_state);
     void     ResetDevice();
-    
-    
-    
-    void    FIFOEnable(uint8_t channel, uint8_t fifo_enable);
-    void    FIFOReset(uint8_t channel, uint8_t rx_fifo);
-    void    FIFOSetTriggerLevel(uint8_t channel, uint8_t rx_fifo, uint8_t length);
+        
+    void    SetFifoControlRegister(uint8_t channel, uint8_t setup);
     uint8_t FIFOAvailableData(uint8_t channel);
     uint8_t FIFOAvailableSpace(uint8_t channel);
     void    WriteByte(uint8_t channel, uint8_t val);
     int     ReadByte(uint8_t channel);
-    //void    EnableTransmit(uint8_t channel, uint8_t tx_enable);
+    void    EnableReceive(uint8_t channel, uint8_t rx_enable);
+    void    EnableTransmit(uint8_t channel, uint8_t tx_enable);
     int     peek_buf;
     uint8_t peek_flag;
+    uint8_t fifoSetupA;
+    uint8_t fifoSetupB;
     
 };
 

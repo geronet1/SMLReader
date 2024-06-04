@@ -2,12 +2,14 @@
 SC16IS752 driver for Arduino
 */
 
-#define SC16IS750_DEBUG_PRINT
+//#define SC16IS750_DEBUG_PRINT
 #include <SC16IS752.h>
 #include <SPI.h>
 #include <Wire.h>
 
+#define SPI_SPEED 4000000
 #define SPI_DELAY 1	// Microseconds
+#define FIFO_SIZE 56 // teilbar durch 4, von 4-60
 
 #ifdef __AVR__
  #define WIRE Wire
@@ -28,11 +30,8 @@ SC16IS752::SC16IS752(uint8_t prtcl, uint8_t addr_sspin)
 		device_address_sspin = addr_sspin;
 		::pinMode(device_address_sspin, OUTPUT);
 		::digitalWrite(device_address_sspin, HIGH);
-		SPI.setDataMode(SPI_MODE0);
-		SPI.setClockDivider(SPI_CLOCK_DIV4);
-		SPI.setBitOrder(MSBFIRST);
 		SPI.begin();
-		//SPI.setClockDivider(32);
+		SPI.beginTransaction(SPISettings(SPI_SPEED, MSBFIRST, SPI_MODE0));
 	}
 	peek_flag = 0;
 	//timeout = 1000;
@@ -45,18 +44,27 @@ int SC16IS752::begin(uint32_t baud_A, uint32_t baud_B)
 		return false;
 
 	ResetDevice();
-	FIFOEnable(SC16IS752_CHANNEL_A, 1);
-	FIFOEnable(SC16IS752_CHANNEL_B, 1);
 	SetBaudrate(SC16IS752_CHANNEL_A, baud_A);
-	SetBaudrate(SC16IS752_CHANNEL_B, baud_B);
 	SetLine(SC16IS752_CHANNEL_A, 8, 0, 1);
-	SetLine(SC16IS752_CHANNEL_B, 8, 0, 1);
+	fifoSetupA = FIFO_RX_TRIGGER_56 | FIFO_TX_TRIGGER_8 | FIFO_ENABLE;
+	SetFifoControlRegister(SC16IS752_CHANNEL_A, fifoSetupA | FIFO_RX_RESET);		// setup and reset
+	InterruptControl(SC16IS752_CHANNEL_A, SC16IS750_INT_RHR | SC16IS750_INT_LINE);    // enable RHR interrupt
 
-	InterruptControl(SC16IS752_CHANNEL_A, 0x01);    // enable RHR interrupt
-    FIFOSetTriggerLevel(SC16IS752_CHANNEL_A, SC16IS750_FIFO_RX, 20 / 4);
+	if (baud_B)
+	{
+		SetBaudrate(SC16IS752_CHANNEL_B, baud_B);
+		SetLine(SC16IS752_CHANNEL_B, 8, 0, 1);
+		fifoSetupB = FIFO_RX_TRIGGER_56 | FIFO_TX_TRIGGER_8 | FIFO_ENABLE;
+		SetFifoControlRegister(SC16IS752_CHANNEL_B, fifoSetupB | FIFO_RX_RESET);	// setup and reset
+		InterruptControl(SC16IS752_CHANNEL_B, SC16IS750_INT_RHR | SC16IS750_INT_LINE);    // enable RHR interrupt
+	}
+	else
+	{
+	    EnableReceive(SC16IS752_CHANNEL_B, false);
+	}
 
-	InterruptControl(SC16IS752_CHANNEL_B, 0x01);    // enable RHR interrupt
-    FIFOSetTriggerLevel(SC16IS752_CHANNEL_B, SC16IS750_FIFO_RX, 20 / 4);
+    EnableTransmit(SC16IS752_CHANNEL_A, false);
+	EnableTransmit(SC16IS752_CHANNEL_B, false);
 
 	return true;
 }
@@ -82,9 +90,9 @@ int SC16IS752::readFIFO(uint8_t channel, uint8_t *data)
 	::digitalWrite(device_address_sspin, LOW);
 	delayMicroseconds(SPI_DELAY);
 
+	SPI.transfer(0x80|((SC16IS750_REG_RHR<<3 | channel<<1)));
 	for (uint8_t i = 0; i < bytes; i++)
 	{
-		SPI.transfer(0x80|((SC16IS750_REG_RHR<<3 | channel<<1)));
 		data[i] = SPI.transfer(0xFF);
 	}
 
@@ -149,9 +157,14 @@ uint8_t SC16IS752::ReadRegister(uint8_t channel, uint8_t reg_addr)
 	Serial.print("SPI [R] C:");
 	Serial.print(channel,HEX);
 	Serial.print("\tA:0x");
-	Serial.print((reg_addr<<3 | channel<<1),HEX);
+	if ((reg_addr) < 10)
+		Serial.print("0");
+	Serial.print((reg_addr),HEX);
 	Serial.print("\tR:0x");
+	if (result < 10)
+		Serial.print("0");
 	Serial.println(result,HEX);
+	Serial.flush();
 #endif
 	return result;
 }
@@ -162,9 +175,14 @@ void SC16IS752::WriteRegister(uint8_t channel, uint8_t reg_addr, uint8_t val)
 	Serial.print("SPI [W] C:");
 	Serial.print(channel,HEX);
 	Serial.print("\tA:0x");
-	Serial.print((reg_addr<<3 | channel<<1),HEX);
+	if ((reg_addr) < 10)
+		Serial.print("0");
+	Serial.print((reg_addr),HEX);
 	Serial.print("\tV:0x");
+	if (val < 10)
+		Serial.print("0");
 	Serial.println(val,HEX);
+	Serial.flush();
 #endif
 
 	if ( protocol == SC16IS750_PROTOCOL_I2C ) {			// register write operation via I2C
@@ -220,6 +238,7 @@ int16_t SC16IS752::SetBaudrate(uint8_t channel, uint32_t baudrate) //return erro
 	Serial.println(actual_baudrate,DEC);
 	Serial.print("Baudrate error: ");
 	Serial.println(error,DEC);
+	Serial.flush();
 #endif
 
 	return error;
@@ -233,6 +252,7 @@ void SC16IS752::SetLine(uint8_t channel, uint8_t data_length, uint8_t parity_sel
 #ifdef  SC16IS750_DEBUG_PRINT
 	Serial.print("LCR Register:0x");
 	Serial.println(temp_lcr,DEC);
+	Serial.flush();
 #endif
 	switch (data_length) {			//data length settings
 		case 5:
@@ -386,6 +406,11 @@ void SC16IS752::GPIOLatch(uint8_t latch)
 void SC16IS752::InterruptControl(uint8_t channel, uint8_t int_ena)
 {
 	WriteRegister(channel, SC16IS750_REG_IER, int_ena);
+
+#ifdef  SC16IS750_DEBUG_PRINT
+	uint8_t temp_reg = ReadRegister(channel, SC16IS750_REG_IER);
+	Serial.printf("IER:0x%X\n", temp_reg);
+#endif
 }
 
 uint8_t SC16IS752::InterruptPendingTest(uint8_t channel)
@@ -425,57 +450,57 @@ int SC16IS752::InterruptEventTest(uint8_t channel)
 	return -1;
 }
 
-void SC16IS752::FIFOEnable(uint8_t channel, uint8_t fifo_enable)
+
+void SC16IS752::ResetFifo(uint8_t channel, uint8_t fifo)
 {
-	uint8_t temp_fcr;
+	uint8_t setup;
 
-	temp_fcr = ReadRegister(channel, SC16IS750_REG_FCR);
+	if (channel == SC16IS752_CHANNEL_A)
+		setup = fifoSetupA;
+	else
+		setup = fifoSetupB;
 
-	if (fifo_enable == 0){
-		temp_fcr &= 0xFE;
-	} else {
-		temp_fcr |= 0x01;
-	}
-	WriteRegister(channel, SC16IS750_REG_FCR, temp_fcr);
-
-	return;
+	WriteRegister(channel, SC16IS750_REG_FCR, setup | fifo);
 }
 
-void SC16IS752::FIFOReset(uint8_t channel, uint8_t rx_fifo)
+void SC16IS752::SetFifoControlRegister(uint8_t channel, uint8_t setup)
 {
-	uint8_t temp_fcr;
+	WriteRegister(channel, SC16IS750_REG_FCR, setup);
 
-	temp_fcr = ReadRegister(channel, SC16IS750_REG_FCR);
-
-	if (rx_fifo == 0){
-		temp_fcr |= 0x04;
-	} else {
-		temp_fcr |= 0x02;
-	}
-	WriteRegister(channel, SC16IS750_REG_FCR,temp_fcr);
-
-	return;
-
-}
-
-void SC16IS752::FIFOSetTriggerLevel(uint8_t channel, uint8_t rx_fifo, uint8_t length)
-{
+/*
 	uint8_t temp_reg;
+	temp_reg = ReadRegister(channel, SC16IS750_REG_EFR);
+	WriteRegister(channel, SC16IS750_REG_EFR, temp_reg|0x10); //set ERF[4] to '1' to use the  enhanced features
 
 	temp_reg = ReadRegister(channel, SC16IS750_REG_MCR);
 	temp_reg |= 0x04;
 	WriteRegister(channel, SC16IS750_REG_MCR,temp_reg); //SET MCR[2] to '1' to use TLR register or trigger level control in FCR register
 
-	temp_reg = ReadRegister(channel, SC16IS750_REG_EFR);
-	WriteRegister(channel, SC16IS750_REG_EFR, temp_reg|0x10); //set ERF[4] to '1' to use the  enhanced features
-	if (rx_fifo == SC16IS750_FIFO_TX) {
-		WriteRegister(channel, SC16IS750_REG_TLR, length<<4); //Tx FIFO trigger level setting
-	} else {
-		WriteRegister(channel, SC16IS750_REG_TLR, length);	//Rx FIFO Trigger level setting
+	if (fifo == SC16IS750_FIFO_RX)
+	{
+		WriteRegister(channel, SC16IS750_REG_TLR, length<<4); //Rx FIFO trigger level setting
 	}
-	WriteRegister(channel, SC16IS750_REG_EFR, temp_reg); //restore EFR register
+	else
+	{
+		WriteRegister(channel, SC16IS750_REG_TLR, length);	//Tx FIFO Trigger level setting
+	}
+	//WriteRegister(channel, SC16IS750_REG_EFR, temp_reg); //restore EFR register
+*/
 
-	return;
+#ifdef  SC16IS750_DEBUG_PRINT
+	temp_reg = ReadRegister(channel, SC16IS750_REG_EFR);
+	Serial.printf("EFR:0x%X\n", temp_reg);
+
+	temp_reg = ReadRegister(channel, SC16IS750_REG_MCR);
+	Serial.printf("MCR:0x%X\n", temp_reg);
+
+	uint8_t temp_fcr;
+	temp_fcr = ReadRegister(channel, SC16IS750_REG_FCR);
+	Serial.printf("FCR:0x%X\n", temp_fcr);
+	
+	temp_reg = ReadRegister(0, SC16IS750_REG_TLR);
+	Serial.printf("TLR:0x%X\n", temp_reg);
+#endif
 }
 
 uint8_t SC16IS752::FIFOAvailableData(uint8_t channel)
@@ -547,11 +572,24 @@ void SC16IS752::EnableRs485(uint8_t channel, uint8_t invert)
 	} else {
 		temp_efcr |= 0x30;
 	}
-	WriteRegister(channel, SC16IS750_REG_EFCR,temp_efcr);
+	WriteRegister(channel, SC16IS750_REG_EFCR, temp_efcr);
 
 	return;
 }
 
+void SC16IS752::EnableReceive(uint8_t channel, uint8_t rx_enable)
+{
+	uint8_t temp_efcr;
+	temp_efcr = ReadRegister(channel, SC16IS750_REG_EFCR);
+	if ( rx_enable == 0) {
+		temp_efcr |= 0x02;
+	} else {
+		temp_efcr &= 0xFD;
+	}
+	WriteRegister(channel, SC16IS750_REG_EFCR, temp_efcr);
+
+	return;
+}
 
 void SC16IS752::EnableTransmit(uint8_t channel, uint8_t tx_enable)
 {
@@ -562,7 +600,7 @@ void SC16IS752::EnableTransmit(uint8_t channel, uint8_t tx_enable)
 	} else {
 		temp_efcr &= 0xFB;
 	}
-	WriteRegister(channel, SC16IS750_REG_EFCR,temp_efcr);
+	WriteRegister(channel, SC16IS750_REG_EFCR, temp_efcr);
 
 	return;
 }
@@ -640,8 +678,6 @@ void SC16IS752::flush(uint8_t channel)
 	do {
 		tmp_lsr = ReadRegister(channel, SC16IS750_REG_LSR);
 	} while ((tmp_lsr&0x20) ==0);
-
-
 }
 
 int SC16IS752::peek(uint8_t channel)
@@ -654,5 +690,4 @@ int SC16IS752::peek(uint8_t channel)
 	}
 
 	return peek_buf;
-
 }
