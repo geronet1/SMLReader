@@ -218,6 +218,19 @@ private:
         }
     }
 
+    /// @returns The calculated bit for even parity of the parameter byte
+    static bool parityEven(uint8_t byte) {
+        byte ^= byte >> 4;
+        byte &= 0xf;
+        return (0x6996 >> byte) & 1;
+    }
+    /// @returns The calculated bit for odd parity of the parameter byte
+    static bool parityOdd(uint8_t byte) {
+        byte ^= byte >> 4;
+        byte &= 0xf;
+        return (0x9669 >> byte) & 1;
+    }
+
     // Wait for the start_sequence to appear
     void wait_for_start_sequence()
     {
@@ -228,6 +241,15 @@ private:
 
             if (this->config->type == ASCII)
             {
+                if (this->config->mode & 0x10)  // if parity enabled
+                {
+                    if (this->serial->readParity() != (static_cast<bool>(this->config->mode & 010) ? parityOdd(this->buffer[this->position]) : parityEven(this->buffer[this->position])))
+                    {
+                        DEBUG("Parity ERROR");
+                        return;
+                    }
+                }
+
                 if (this->buffer[this->position] == ASCII_START)
                 {
                     // Start sequence has been found

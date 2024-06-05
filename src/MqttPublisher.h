@@ -273,7 +273,7 @@ private:
   {
     if (this->connected)
     {
-      DEBUG(F("MQTT: Publishing to %s:"), topic);
+      //DEBUG(F("MQTT: Publishing to %s:"), topic);
       if (config.jsonPayload[0] == 's')
       {
         const char *buf = new_json_wrap(topic, payload);
@@ -283,7 +283,7 @@ private:
       }
       else
       {
-        DEBUG(F("%s"), payload);
+        //DEBUG(F("%s"), payload);
         client.publish(topic, qos, retain, payload, strlen(payload));
       }
     }

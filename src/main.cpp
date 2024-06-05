@@ -6,6 +6,7 @@
 #include "config.h"
 #include "webconf.h"
 #include "Sensor.h"
+#include "re.h"
 
 #ifdef MODBUS
 #include "modbus.h"
@@ -32,10 +33,26 @@ Modbus *modbus;
 #endif
 
 uint16_t deepSleepInterval;
-
 uint64_t lastMessageTime = 0;
-
 bool connected = false;
+re_t pattern;
+#define PATTERN_LENGTHS 3
+int pattern_length[PATTERN_LENGTHS] = {30, 25, 21};
+
+    // https://regex101.com/r/xO4qTh/1
+#define REGEX_PATTERN "^\\d-0:\\d+\\.\\d\\.\\d\\*255\\(\\d+\\.\\d+\\*"
+#define OBIS_STR_LENGTH 15
+const char obis_list[][OBIS_STR_LENGTH] = {
+    "1-0:1.8.0/255",
+    "1-0:2.8.0/255",
+    "1-0:16.7.0/255",
+    "1-0:36.7.0/255",
+    "1-0:56.7.0/255",
+    "1-0:76.7.0/255",
+    "1-0:32.7.0/255",
+    "1-0:52.7.0/255",
+    "1-0:72.7.0/255"
+};
 
 void process_message(uint8_t *buffer, size_t len, Sensor *sensor)
 {
@@ -57,49 +74,69 @@ void process_message(uint8_t *buffer, size_t len, Sensor *sensor)
         {
             yield();
             
-            uint8_t i, j = 0;
-            char cf = '(';
-            for (i = 0; i < strlen(token); i++)
+            int match, length;
+            bool length_ok = false;
+
+            match = re_matchp(pattern, token, &length);
+            //DEBUG("match: m:%d l:%d t:%s", match, length, token);
+
+            for (uint8_t i = 0; i < PATTERN_LENGTHS; i++)
             {
-                if (token[i] == cf)
-                    break;
-                                 
-                obis[i] = token[i];
-                obis[i+1] = '\0';
+                if (length == pattern_length[i])
+                    length_ok = true;
             }
 
-            i++;    // jump over '('
-            for (; i < strlen(token); i++)
+            if (match == 0 && length_ok)
             {
-                value[j++] = token[i];
-                value[j] = '\0';
-            }
-            value[strlen(value) - 1] = '\0';    // delete ')'
-
-            for (i = 0; i < strlen(obis); i++)
-            {
-                if (obis[i] == '*')
+                uint8_t i, j = 0;
+                char cf = '(';
+                for (i = 0; i < strlen(token); i++)
                 {
-                    obis[i] = '/'; // change '*' to '/'
-                    break;
+                    if (token[i] == cf)
+                        break;
+
+                    obis[i] = token[i];
+                    obis[i+1] = '\0';
+                }
+
+                i++;    // jump over '('
+                for (; i < strlen(token); i++)
+                {
+                    value[j++] = token[i];
+                    value[j] = '\0';
+                }
+                value[strlen(value) - 1] = '\0';    // delete ')'
+
+                for (i = 0; i < strlen(obis); i++)
+                {
+                    if (obis[i] == '*')
+                    {
+                        obis[i] = '/'; // change '*' to '/'
+                        break;
+                    }
+                }
+
+                for (i = 0; i < strlen(value); i++)
+                {
+                    if (value[i] == '*')
+                    {
+                        value[i] = '\0'; // change '*' to '\0'
+                        break;
+                    }
+                }
+
+                for (i = 0; i < (sizeof(obis_list) / OBIS_STR_LENGTH); i++)
+                {
+                    if (strcmp(obis_list[i], obis) == 0)
+                    {
+                        publisher.publish(sensor, obis, value);
+                        break;
+                    }
                 }
             }
-
-            for (i = 0; i < strlen(value); i++)
-            {
-                if (value[i] == '*')
-                {
-                    value[i] = '\0'; // change '*' to '\0'
-                    break;
-                }
-            }
-
-            if (strlen(obis) >= 13 && strlen(value) >= 2)
-                publisher.publish(sensor, obis, value);
 
             token = strtok(NULL, delim);
         }
-
     }
     else
     {
@@ -163,7 +200,9 @@ void setup()
     DEBUG("Modbus setup done.");
 #endif
 
-    DEBUG("Setup done.");
+    pattern = re_compile(REGEX_PATTERN);
+
+   DEBUG("Setup done.");
 }
 
 void loop()
