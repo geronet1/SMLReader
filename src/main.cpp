@@ -53,22 +53,77 @@ const char obis_list[][OBIS_STR_LENGTH] = {
     "1-0:52.7.0/255",
     "1-0:72.7.0/255"
 };
+const char obis_ID[] = {
+    "1-0:96.1.0/255"
+};
+
+void parse_ascii(char *input, char *obis, char *value, int max_len)
+{
+    // input: 1-0:2.8.0*255(000001.18200000*kWh)
+    // output: obis:"1-0:2.8.0/255\0" value:"000001.18200000\0"
+    const char cf = '(';
+    uint8_t i, j = 0;
+
+    for (i = 0; i < strlen(input); i++)
+    {
+        if (i >= max_len)
+            return;
+        if (input[i] == cf)
+            break;
+
+        obis[i] = input[i];
+        obis[i+1] = '\0';
+    }
+
+    i++;    // jump over '('
+    for (; i < strlen(input); i++)
+    {
+        if (i >= max_len || j >= max_len)
+            return;
+
+        value[j++] = input[i];
+        value[j] = '\0';
+    }
+    value[strlen(value) - 1] = '\0';    // delete ')'
+
+    for (i = 0; i < strlen(obis); i++)
+    {
+        if (obis[i] == '*')
+        {
+            obis[i] = '/'; // change '*' to '/'
+            break;
+        }
+    }
+
+    for (i = 0; i < strlen(value); i++)
+    {
+        if (value[i] == '*')
+        {
+            value[i] = '\0'; // change '*' to '\0'
+            break;
+        }
+    }
+}
 
 void process_message(uint8_t *buffer, size_t len, Sensor *sensor)
 {
     lastMessageTime = millis64();
-    // Parse
+
     if (sensor->config->type == ASCII)
     {
-        char obis[50];
-        char value[50];
+        const int MAX_LEN = 50;
+        char obis[MAX_LEN];
+        char value[MAX_LEN];
         char delim[3] = {ASCII_CR, ASCII_LF};
 
         buffer[len-3] = '\0'; // Change the '!' to null-terminator
         char *token = strtok((char*)buffer, delim);
 
+        // publish the first line
         publisher.publish(sensor, "ID", token + 1); // jump over '/'
         token = strtok(NULL, delim);
+
+        bool id_found = false;
 
         while (token)
         {
@@ -80,57 +135,38 @@ void process_message(uint8_t *buffer, size_t len, Sensor *sensor)
             match = re_matchp(pattern, token, &length);
             //DEBUG("match: m:%d l:%d t:%s", match, length, token);
 
-            for (uint8_t i = 0; i < PATTERN_LENGTHS; i++)
+            if (match != 0)
             {
-                if (length == pattern_length[i])
-                    length_ok = true;
-            }
-
-            if (match == 0 && length_ok)
-            {
-                uint8_t i, j = 0;
-                char cf = '(';
-                for (i = 0; i < strlen(token); i++)
+                if (!id_found)
                 {
-                    if (token[i] == cf)
-                        break;
-
-                    obis[i] = token[i];
-                    obis[i+1] = '\0';
-                }
-
-                i++;    // jump over '('
-                for (; i < strlen(token); i++)
-                {
-                    value[j++] = token[i];
-                    value[j] = '\0';
-                }
-                value[strlen(value) - 1] = '\0';    // delete ')'
-
-                for (i = 0; i < strlen(obis); i++)
-                {
-                    if (obis[i] == '*')
+                    // check if ID of meter
+                    parse_ascii(token, obis, value, MAX_LEN);
+                    if (strcmp(obis, obis_ID) == 0)
                     {
-                        obis[i] = '/'; // change '*' to '/'
-                        break;
-                    }
-                }
-
-                for (i = 0; i < strlen(value); i++)
-                {
-                    if (value[i] == '*')
-                    {
-                        value[i] = '\0'; // change '*' to '\0'
-                        break;
-                    }
-                }
-
-                for (i = 0; i < (sizeof(obis_list) / OBIS_STR_LENGTH); i++)
-                {
-                    if (strcmp(obis_list[i], obis) == 0)
-                    {
+                        id_found = true;
                         publisher.publish(sensor, obis, value);
-                        break;
+                    }
+                }
+            }
+            else
+            {
+                for (uint8_t i = 0; i < PATTERN_LENGTHS; i++)
+                {
+                    if (length == pattern_length[i])
+                        length_ok = true;
+                }
+
+                if (length_ok)
+                {
+                    parse_ascii(token, obis, value, MAX_LEN);
+
+                    for (uint8_t i = 0; i < (sizeof(obis_list) / OBIS_STR_LENGTH); i++)
+                    {
+                        if (strcmp(obis_list[i], obis) == 0)
+                        {
+                            publisher.publish(sensor, obis, value);
+                            break;
+                        }
                     }
                 }
             }
